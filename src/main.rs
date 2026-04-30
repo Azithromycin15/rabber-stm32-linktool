@@ -1,5 +1,6 @@
 mod cli;
 mod flash;
+mod install;
 mod output;
 mod shell;
 mod stlink;
@@ -11,6 +12,7 @@ use std::io::{self, Write};
 use std::process::Command;
 
 use cli::Args;
+use install::{install_stlink_tools, prompt_install_stlink_tools};
 use output::{print_banner, print_mcu_info, print_stlink_info};
 use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
@@ -30,11 +32,17 @@ fn main() {
     io::stdout().flush().ok();
     if !check_stlink_tools_installed() {
         println!(" {}", "未找到".red());
-        println!("{}", "[!] 请先安装 stlink-tools:".yellow());
-        println!("    Ubuntu/Debian: sudo apt-get install stlink-tools");
-        println!("    Arch: sudo pacman -S stlink");
-        println!("    或从源码编译: https://github.com/stlink-org/stlink");
-        return;
+        if prompt_install_stlink_tools() {
+            if install_stlink_tools() && check_stlink_tools_installed() {
+                println!("{}", "[✓] stlink-tools 已安装，继续执行。".green());
+            } else {
+                println!("{}", "[✗] stlink-tools 安装失败，请手动安装后重试。".red());
+                return;
+            }
+        } else {
+            println!("{}", "已取消安装。请先手动安装 stlink-tools 再运行本程序。".yellow());
+            return;
+        }
     }
     println!(" {}", "已安装".green());
 
