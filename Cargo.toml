@@ -1,0 +1,13 @@
+[package]
+name = "rabber-stm32-linktool"
+version = "1.0.0"
+edition = "2021"
+authors = ["Azithromycin-kro.azithromycin@icloud.com"]
+description = "Rust-based ST-Link V2 MCU information and flashing helper."
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+colored = "2.0"
+rustyline = "11.0"
+which = "8.0"

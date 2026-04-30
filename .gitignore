@@ -1,0 +1,10 @@
+# Rust build directories
+/target
+
+# Cargo metadata
+Cargo.lock
+
+# Editor temporary files
+*.swp
+*.swo
+*~
