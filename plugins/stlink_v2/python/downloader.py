@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
+"""
+ST-Link V2 Downloader Component
+
+This Python module implements the ST-Link V2 downloader component for STM32 SWD flashing and MCU information retrieval.
+It provides a command-line interface to interact with ST-Link tools for probing, flashing, and resetting STM32 microcontrollers.
+"""
+
 import argparse
 import subprocess
 import sys
 
+# Component constants
 COMPONENT_ID = "stlink_v2"
 VERSION = "1.0.1"
 DESCRIPTION = "ST-Link V2 downloader component for STM32 SWD flashing and MCU info."
 
 
 def run_command(args):
+    """
+    Execute a shell command and return the exit code and stdout.
+
+    Args:
+        args (list): Command arguments
+
+    Returns:
+        tuple: (exit_code, stdout)
+    """
     try:
         result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if result.returncode != 0:
@@ -20,6 +37,12 @@ def run_command(args):
 
 
 def probe():
+    """
+    Probe the connected MCU using st-info --probe.
+
+    Returns:
+        int: Exit code (0 for success)
+    """
     code, output = run_command(["st-info", "--probe"])
     if code == 0:
         print(output)
@@ -27,6 +50,12 @@ def probe():
 
 
 def get_info():
+    """
+    Get MCU information using st-info --probe.
+
+    Returns:
+        int: Exit code (0 for success)
+    """
     code, output = run_command(["st-info", "--probe"])
     if code != 0:
         return code
@@ -35,6 +64,15 @@ def get_info():
 
 
 def flash(file_path):
+    """
+    Flash firmware to the MCU and reset it.
+
+    Args:
+        file_path (str): Path to the firmware file
+
+    Returns:
+        int: Exit code (0 for success)
+    """
     code, _ = run_command(["st-flash", "write", file_path, "0x08000000"])
     if code != 0:
         return code
@@ -47,6 +85,12 @@ def flash(file_path):
 
 
 def reset():
+    """
+    Reset the MCU using st-flash reset.
+
+    Returns:
+        int: Exit code (0 for success)
+    """
     code, _ = run_command(["st-flash", "reset"])
     if code != 0:
         return code
@@ -55,6 +99,11 @@ def reset():
 
 
 def main():
+    """
+    Main entry point for the downloader component.
+
+    Parses command-line arguments and executes the requested action.
+    """
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument("--action", required=True, choices=["probe", "info", "flash", "reset"])
     parser.add_argument("--file", help="Firmware file path for flash action")

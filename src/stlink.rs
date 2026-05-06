@@ -1,11 +1,19 @@
+//! # ST-Link 设备检测和 MCU 信息获取模块
+//!
+//! 这个模块负责检测 ST-Link 设备、获取 ST-Link 信息和通过 SWD 接口读取 MCU 信息。
+
 use colored::Colorize;
 use crate::plugin::PluginManager;
 use crate::utils::{execute_command, find_stlink_cli_tool};
 use std::fs;
 use std::io::{self, Write};
 
+/// USB 设备系统路径
 pub const SYS_USB_DEVICES: &str = "/sys/bus/usb/devices/";
 
+/// MCU 信息结构体
+///
+/// 包含芯片 ID、名称、Flash 大小和内核类型。
 #[derive(Default)]
 pub struct MCUInfo {
     pub chip_id: String,
@@ -14,6 +22,9 @@ pub struct MCUInfo {
     pub core: String,
 }
 
+/// ST-Link 信息结构体
+///
+/// 包含版本、序列号、VID 和 PID。
 #[derive(Default)]
 pub struct STLinkInfo {
     pub version: String,
@@ -22,11 +33,17 @@ pub struct STLinkInfo {
     pub pid: u16,
 }
 
+/// 解析十六进制 ID
+///
+/// 将字符串形式的十六进制 ID 转换为 u16。
 fn parse_hex_id(id: &str) -> Option<u16> {
     let normalized = id.trim().trim_start_matches("0x");
     u16::from_str_radix(normalized, 16).ok()
 }
 
+/// 获取默认 ST-Link 元数据
+///
+/// 从插件清单中读取默认 ST-Link 的供应商 ID 和产品 ID 列表。
 fn default_stlink_metadata() -> Option<(u16, Vec<u16>)> {
     if let Some(manager) = PluginManager::load_from("plugins/manifest.yaml") {
         if let Some(component) = manager.default_stlink_component() {
@@ -43,6 +60,9 @@ fn default_stlink_metadata() -> Option<(u16, Vec<u16>)> {
     None
 }
 
+/// 通过 USB 检测 ST-Link 设备
+///
+/// 扫描 USB 设备列表，检查是否存在匹配的 ST-Link 设备。
 pub fn detect_stlink_by_usb() -> bool {
     let (vendor_id, product_ids) = match default_stlink_metadata() {
         Some((vendor_id, product_ids)) => (vendor_id, product_ids),
@@ -78,6 +98,9 @@ pub fn detect_stlink_by_usb() -> bool {
     false
 }
 
+/// 获取 ST-Link 设备信息
+///
+/// 通过 st-info 命令获取 ST-Link 的版本、序列号等信息。
 pub fn get_stlink_info() -> STLinkInfo {
     let mut info = STLinkInfo::default();
     if let Some(cli_path) = find_stlink_cli_tool() {
@@ -114,6 +137,9 @@ pub fn get_stlink_info() -> STLinkInfo {
     info
 }
 
+/// 解析 Flash 大小
+///
+/// 从字符串中解析 Flash 大小，支持不同的单位（KB、MB 等）。
 pub fn parse_flash_size(text: &str) -> Option<u32> {
     let text = text.trim();
     let number: String = text.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -132,6 +158,9 @@ pub fn parse_flash_size(text: &str) -> Option<u32> {
     }
 }
 
+/// 通过 SWD 获取 MCU 信息
+///
+/// 使用多种方法尝试获取 MCU 的芯片 ID、Flash 大小和内核类型。
 pub fn get_mcu_info_via_swd() -> MCUInfo {
     let mut info = MCUInfo::default();
     let cli_path = match find_stlink_cli_tool() {
@@ -195,6 +224,9 @@ pub fn get_mcu_info_via_swd() -> MCUInfo {
     info
 }
 
+/// 根据芯片 ID 推断内核类型
+///
+/// 通过芯片 ID 的模式匹配来确定 Cortex-M 内核版本。
 pub fn infer_core_from_chip_id(chip_id: &str) -> String {
     if chip_id.contains("410") || chip_id.contains("411") || chip_id.contains("412") {
         "Cortex-M3".to_string()

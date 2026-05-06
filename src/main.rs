@@ -1,3 +1,7 @@
+//! # rabber-stm32-linktool 主程序
+//!
+//! 这个模块包含应用程序的入口点和初始化逻辑。
+
 mod cli;
 mod flash;
 mod install;
@@ -20,23 +24,31 @@ use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
 use utils::{check_stlink_tools_installed, is_root};
 
+/// 应用程序的主入口点
+///
+/// 执行初始化检查，包括插件加载、权限检查、工具链验证、
+/// USB 设备检测和 MCU 信息读取，然后进入交互模式。
 fn main() {
     let _args = Args::parse();
 
     println!();
     print_banner();
 
+    // 加载插件组件
     println!("{}", "[*] 加载插件组件...".cyan());
-    if let Some(manager) = PluginManager::load_from("plugins/manifest.yaml") {
+    let plugin_manager = PluginManager::load_from("plugins/manifest.yaml");
+    if let Some(manager) = &plugin_manager {
         manager.list_components();
     } else {
         println!("{}", "未找到插件清单，将使用默认内置配置。".yellow());
     }
 
+    // 检查 root 权限
     if !is_root() {
         println!("{}", "[!] 建议以 root 权限运行以获得完整 USB 访问权限".yellow());
     }
 
+    // 检查 ST-Link 工具链
     print!("{}", "[*] 检查 ST-Link 工具链...".cyan());
     io::stdout().flush().ok();
     if !check_stlink_tools_installed() {
@@ -55,6 +67,7 @@ fn main() {
     }
     println!(" {}", "已安装".green());
 
+    // 扫描 USB 设备
     print!("{}", "[*] 扫描 USB 设备...".cyan());
     io::stdout().flush().ok();
     if !detect_stlink_by_usb() {
@@ -68,9 +81,11 @@ fn main() {
     }
     println!(" {}", "检测到 ST-Link 设备".green());
 
+    // 获取并显示 ST-Link 信息
     let stlink_info = get_stlink_info();
     print_stlink_info(&stlink_info);
 
+    // 尝试通过 SWD 读取 MCU 信息
     println!("\n{}", "[*] 尝试通过 SWD 读取 MCU 信息...".cyan());
     let mcu_info = get_mcu_info_via_swd();
     if !mcu_info.chip_id.is_empty() {
@@ -85,8 +100,9 @@ fn main() {
         println!("    4. SWD 接口被禁用（尝试先擦除 Flash）");
     }
 
+    // 进入交互模式
     println!("\n{}", "[✓] 检测完成，进入交互模式".green());
-    println!("{}", "[!] 提示: 可以使用 'help' 命令获取支持的指令信息".yellow());
+    println!("{}", "[!] 提示: 可以使用 'help' 或 'help <plugin_id>' 获取支持的指令信息".yellow());
 
-    interactive_mode();
+    interactive_mode(plugin_manager);
 }

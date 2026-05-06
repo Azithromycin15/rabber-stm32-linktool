@@ -1,3 +1,5 @@
+// Package main implements a plugin loader for the ST-Link tool.
+// It loads plugin manifests and executes Python-based components.
 package main
 
 import (
@@ -11,6 +13,7 @@ import (
     "gopkg.in/yaml.v3"
 )
 
+// ComponentMetadata holds hardware-specific information for a component.
 type ComponentMetadata struct {
     VendorID           string   `yaml:"vendor_id"`
     ProductIDs         []string `yaml:"product_ids"`
@@ -18,20 +21,31 @@ type ComponentMetadata struct {
     FlashStartAddress  string   `yaml:"flash_start_address"`
 }
 
-type ComponentInfo struct {
-    ID           string            `yaml:"id"`
-    Name         string            `yaml:"name"`
-    ComponentType string           `yaml:"component_type"`
-    Description  string            `yaml:"description"`
-    PythonModule string            `yaml:"python_module"`
-    JSModule     string            `yaml:"js_module"`
-    Metadata     ComponentMetadata `yaml:"metadata"`
+// ComponentAction defines an action that a component can perform.
+type ComponentAction struct {
+    Name        string `yaml:"name"`
+    Description string `yaml:"description"`
+    Args        string `yaml:"args,omitempty"`
 }
 
+// ComponentInfo contains all information about a plugin component.
+type ComponentInfo struct {
+    ID            string            `yaml:"id"`
+    Name          string            `yaml:"name"`
+    ComponentType string            `yaml:"component_type"`
+    Description   string            `yaml:"description"`
+    PythonModule  string            `yaml:"python_module"`
+    JSModule      string            `yaml:"js_module"`
+    Metadata      ComponentMetadata `yaml:"metadata"`
+    Actions       []ComponentAction `yaml:"actions"`
+}
+
+// PluginManifest represents the root structure of the plugin manifest YAML.
 type PluginManifest struct {
     Components []ComponentInfo `yaml:"components"`
 }
 
+// loadManifest reads and parses the plugin manifest YAML file.
 func loadManifest(path string) (*PluginManifest, error) {
     content, err := ioutil.ReadFile(path)
     if err != nil {
@@ -44,6 +58,7 @@ func loadManifest(path string) (*PluginManifest, error) {
     return &manifest, nil
 }
 
+// findComponent searches for a component by its ID in the manifest.
 func findComponent(manifest *PluginManifest, id string) *ComponentInfo {
     for _, component := range manifest.Components {
         if component.ID == id {
@@ -53,6 +68,7 @@ func findComponent(manifest *PluginManifest, id string) *ComponentInfo {
     return nil
 }
 
+// listComponents prints all available components in the manifest.
 func listComponents(manifest *PluginManifest) {
     fmt.Println("Available components:")
     for _, component := range manifest.Components {
@@ -60,6 +76,7 @@ func listComponents(manifest *PluginManifest) {
     }
 }
 
+// executePython runs the Python script for the specified component and action.
 func executePython(component *ComponentInfo, action string, filePath string) error {
     scriptPath := filepath.Clean(component.PythonModule)
     args := []string{scriptPath, "--action", action}
@@ -72,6 +89,7 @@ func executePython(component *ComponentInfo, action string, filePath string) err
     return cmd.Run()
 }
 
+// main is the entry point of the plugin loader.
 func main() {
     manifestPath := flag.String("manifest", "plugins/manifest.yaml", "Path to plugin manifest YAML")
     list := flag.Bool("list", false, "List available plugin components")
