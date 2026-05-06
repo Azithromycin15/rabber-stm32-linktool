@@ -1,9 +1,25 @@
+use crate::output::print_mcu_info;
 use crate::stlink::get_mcu_info_via_swd;
 use crate::utils::{execute_command, find_tool, find_stlink_programmer_tool};
 use colored::*;
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
+
+const FLASH_START_ADDRESS: &str = "0x08000000";
+
+fn prompt_confirm(prompt: &str) -> bool {
+    print!("{} ", prompt.yellow());
+    io::stdout().flush().ok();
+
+    let mut input = String::new();
+    if io::stdin().read_line(&mut input).is_err() {
+        return false;
+    }
+
+    matches!(input.trim().to_lowercase().as_str(), "" | "y" | "yes")
+}
 
 pub fn elf2hex(elf_file: &str, hex_file: &str) -> Result<(), String> {
     let objcopy = find_tool("arm-none-eabi-objcopy", &["arm-none-eabi-objcopy"]).or_else(|| {
@@ -51,19 +67,19 @@ pub fn elf2hex(elf_file: &str, hex_file: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn flash_firmware(file: &str) {
+pub fn flash_firmware(file: &str) -> bool {
     let flash_path = match find_stlink_programmer_tool() {
         Some(path) => path,
         None => {
             println!("{}", "错误: 找不到 st-flash 工具。".red());
-            return;
+            return false;
         }
     };
 
     let file_path = Path::new(file);
     if !file_path.exists() {
         println!("{}", format!("错误: 文件 '{}' 不存在。", file).red());
-        return;
+        return false;
     }
 
     let mut actual_file = file.to_string();
@@ -77,10 +93,19 @@ pub fn flash_firmware(file: &str) {
         println!("{}", "检测到 ELF 文件，正在转换为 HEX...".cyan());
         if let Err(err) = elf2hex(file, &hex_file) {
             println!("{}", err.red());
-            return;
+            return false;
         }
         actual_file = hex_file.clone();
         temp_hex = Some(hex_file);
+    }
+
+    let mcu_info = get_mcu_info_via_swd();
+    if mcu_info.flash_size == 0 {
+        println!("{}", "错误: 无法获取 MCU Flash 大小。".red());
+        if let Some(temp) = temp_hex {
+            let _ = fs::remove_file(temp);
+        }
+        return false;
     }
 
     let file_size = match fs::metadata(&actual_file) {
@@ -90,18 +115,9 @@ pub fn flash_firmware(file: &str) {
             if let Some(temp) = temp_hex {
                 let _ = fs::remove_file(temp);
             }
-            return;
+            return false;
         }
     };
-
-    let mcu_info = get_mcu_info_via_swd();
-    if mcu_info.flash_size == 0 {
-        println!("{}", "错误: 无法获取 MCU Flash 大小。".red());
-        if let Some(temp) = temp_hex {
-            let _ = fs::remove_file(temp);
-        }
-        return;
-    }
 
     if file_size > mcu_info.flash_size {
         println!(
@@ -115,25 +131,60 @@ pub fn flash_firmware(file: &str) {
         if let Some(temp) = temp_hex {
             let _ = fs::remove_file(temp);
         }
-        return;
+        return false;
     }
 
-    println!("{}", format!("正在烧录 '{}' (大小: {} 字节)...", file, file_size).cyan());
+    println!("{}", format!("目标设备 Flash 大小: {} KB", mcu_info.flash_size / 1024).cyan());
+    println!("{}", format!("待烧录文件: {} ({} 字节)", actual_file, file_size).cyan());
+
+    if !prompt_confirm("是否继续烧录并复位 MCU？[Y/n]") {
+        println!("{}", "已取消烧录。".yellow());
+        if let Some(temp) = temp_hex {
+            let _ = fs::remove_file(temp);
+        }
+        return false;
+    }
+
+    println!("{}", format!("正在烧录 '{}'...", actual_file).cyan());
     let status = Command::new(&flash_path)
         .arg("write")
         .arg(&actual_file)
-        .arg("0x8000000")
+        .arg(FLASH_START_ADDRESS)
         .status();
 
-    match status {
-        Ok(status) if status.success() => println!("{}", "烧录成功。".green()),
-        Ok(_) => println!("{}", "烧录失败。".red()),
-        Err(err) => println!("{}", format!("烧录失败: {}", err).red()),
+    let success = match status {
+        Ok(status) if status.success() => {
+            println!("{}", "烧录成功。".green());
+            true
+        }
+        Ok(_) => {
+            println!("{}", "烧录失败。".red());
+            false
+        }
+        Err(err) => {
+            println!("{}", format!("烧录失败: {}", err).red());
+            false
+        }
+    };
+
+    if success {
+        println!("{}", "正在复位 MCU 以启动程序...".cyan());
+        reset_mcu();
+        println!("{}", "正在验证 MCU 启动状态...".cyan());
+        let verify_info = get_mcu_info_via_swd();
+        if !verify_info.chip_id.is_empty() {
+            println!("{}", "烧录并复位完成，MCU 已成功响应 SWD。".green());
+            print_mcu_info(&verify_info);
+        } else {
+            println!("{}", "警告: MCU 复位后未能通过 SWD 验证。请检查程序是否已正确启动、目标板电源和 SWD 连接。".yellow());
+        }
     }
 
     if let Some(temp) = temp_hex {
         let _ = fs::remove_file(temp);
     }
+
+    success
 }
 
 pub fn reset_mcu() {

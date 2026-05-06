@@ -1,5 +1,3 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use which::which;
@@ -40,11 +38,7 @@ pub fn execute_command(cmd: &str, args: &[&str]) -> CommandResult {
 
 pub fn find_tool(name: &str, possible_paths: &[&str]) -> Option<String> {
     for path in possible_paths {
-        if Path::new(path).is_file()
-            && fs::metadata(path)
-                .map(|m| m.permissions().mode() & 0o111 != 0)
-                .unwrap_or(false)
-        {
+        if Path::new(path).is_file() {
             return Some(path.to_string());
         }
     }

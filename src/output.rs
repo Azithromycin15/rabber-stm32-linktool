@@ -47,7 +47,7 @@ pub fn show_help() {
     println!("{}", "可用命令:" .cyan());
     println!("  help          显示此帮助信息");
     println!("  info          查看 MCU 信息");
-    println!("  flash <file>  烧录文件到 MCU (支持 ELF 和 HEX)");
+    println!("  flash <file>  烧录文件到 MCU 并自动复位 (支持 ELF 和 HEX)");
     println!("  elf2hex <elf> <hex>  将 ELF 转换为 HEX 格式");
     println!("  reset         复位 MCU");
     println!("  exit/quit     退出交互模式");
