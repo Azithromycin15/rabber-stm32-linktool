@@ -1,6 +1,6 @@
 # rabber-stm32-linktool
 
-Rust 构建的 ST-Link V2 MCU 信息读取与烧录工具。（开发中）
+由Rust构建的 ST-Link V2 MCU 信息读取与烧录工具。（开发中）
 
 ## 构建
 

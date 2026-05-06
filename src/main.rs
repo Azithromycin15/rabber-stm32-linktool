@@ -2,6 +2,7 @@ mod cli;
 mod flash;
 mod install;
 mod output;
+mod plugin;
 mod shell;
 mod stlink;
 mod utils;
@@ -14,6 +15,7 @@ use std::process::Command;
 use cli::Args;
 use install::{install_stlink_tools, prompt_install_stlink_tools};
 use output::{print_banner, print_mcu_info, print_stlink_info};
+use plugin::PluginManager;
 use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
 use utils::{check_stlink_tools_installed, is_root};
@@ -23,6 +25,13 @@ fn main() {
 
     println!();
     print_banner();
+
+    println!("{}", "[*] 加载插件组件...".cyan());
+    if let Some(manager) = PluginManager::load_from("plugins/manifest.yaml") {
+        manager.list_components();
+    } else {
+        println!("{}", "未找到插件清单，将使用默认内置配置。".yellow());
+    }
 
     if !is_root() {
         println!("{}", "[!] 建议以 root 权限运行以获得完整 USB 访问权限".yellow());

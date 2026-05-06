@@ -1,0 +1,16 @@
+components:
+  - id: stlink_v2
+    name: ST-Link V2
+    component_type: debugger
+    description: ST-Link V2 connector plugin for STM32 SWD flashing and MCU information.
+    python_module: plugins/stlink_v2/python/downloader.py
+    js_module: plugins/stlink_v2/js/component.js
+    metadata:
+      vendor_id: "0x0483"
+      product_ids:
+        - "0x3748"
+        - "0x374B"
+      supported_platforms:
+        - linux
+        - windows
+      flash_start_address: "0x08000000"

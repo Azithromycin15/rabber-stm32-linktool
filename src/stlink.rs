@@ -1,12 +1,10 @@
 use colored::Colorize;
+use crate::plugin::PluginManager;
 use crate::utils::{execute_command, find_stlink_cli_tool};
 use std::fs;
 use std::io::{self, Write};
 
 pub const SYS_USB_DEVICES: &str = "/sys/bus/usb/devices/";
-pub const USB_VENDOR_ID_STLINK_V2: u16 = 0x0483;
-pub const USB_PRODUCT_ID_STLINK_V2: u16 = 0x3748;
-pub const USB_PRODUCT_ID_STLINK_V2_1: u16 = 0x374B;
 
 #[derive(Default)]
 pub struct MCUInfo {
@@ -24,7 +22,33 @@ pub struct STLinkInfo {
     pub pid: u16,
 }
 
+fn parse_hex_id(id: &str) -> Option<u16> {
+    let normalized = id.trim().trim_start_matches("0x");
+    u16::from_str_radix(normalized, 16).ok()
+}
+
+fn default_stlink_metadata() -> Option<(u16, Vec<u16>)> {
+    if let Some(manager) = PluginManager::load_from("plugins/manifest.yaml") {
+        if let Some(component) = manager.default_stlink_component() {
+            let vendor_id = parse_hex_id(&component.metadata.vendor_id)?;
+            let product_ids: Vec<u16> = component
+                .metadata
+                .product_ids
+                .iter()
+                .filter_map(|p| parse_hex_id(p))
+                .collect();
+            return Some((vendor_id, product_ids));
+        }
+    }
+    None
+}
+
 pub fn detect_stlink_by_usb() -> bool {
+    let (vendor_id, product_ids) = match default_stlink_metadata() {
+        Some((vendor_id, product_ids)) => (vendor_id, product_ids),
+        None => (0x0483, vec![0x3748, 0x374B]),
+    };
+
     let entries = fs::read_dir(SYS_USB_DEVICES);
     if entries.is_err() {
         return false;
@@ -44,9 +68,7 @@ pub fn detect_stlink_by_usb() -> bool {
             let vendor = vendor_text.trim().trim_start_matches("0x");
             let product = product_text.trim().trim_start_matches("0x");
             if let (Ok(vid), Ok(pid)) = (u16::from_str_radix(vendor, 16), u16::from_str_radix(product, 16)) {
-                if vid == USB_VENDOR_ID_STLINK_V2
-                    && (pid == USB_PRODUCT_ID_STLINK_V2 || pid == USB_PRODUCT_ID_STLINK_V2_1)
-                {
+                if vid == vendor_id && product_ids.contains(&pid) {
                     return true;
                 }
             }
@@ -82,8 +104,13 @@ pub fn get_stlink_info() -> STLinkInfo {
             }
         }
     }
-    info.vid = USB_VENDOR_ID_STLINK_V2;
-    info.pid = USB_PRODUCT_ID_STLINK_V2;
+    if let Some((vendor_id, product_ids)) = default_stlink_metadata() {
+        info.vid = vendor_id;
+        info.pid = *product_ids.get(0).unwrap_or(&0);
+    } else {
+        info.vid = 0x0483;
+        info.pid = 0x3748;
+    }
     info
 }
 
