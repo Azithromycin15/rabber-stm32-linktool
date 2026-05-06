@@ -1,6 +1,9 @@
 # Rust build directories
 /target
 
+# Go plugin loader binary
+/plugin-loader/plugin-loader
+
 # Cargo metadata
 Cargo.lock
 
