@@ -3,6 +3,7 @@
 package main
 
 import (
+    "encoding/json"
     "flag"
     "fmt"
     "io/ioutil"
@@ -15,29 +16,31 @@ import (
 
 // ComponentMetadata holds hardware-specific information for a component.
 type ComponentMetadata struct {
-    VendorID           string   `yaml:"vendor_id"`
-    ProductIDs         []string `yaml:"product_ids"`
-    SupportedPlatforms []string `yaml:"supported_platforms"`
-    FlashStartAddress  string   `yaml:"flash_start_address"`
+    VendorID           string   `yaml:"vendor_id" json:"vendor_id"`
+    ProductIDs         []string `yaml:"product_ids" json:"product_ids"`
+    SupportedPlatforms []string `yaml:"supported_platforms" json:"supported_platforms"`
+    FlashStartAddress  string   `yaml:"flash_start_address" json:"flash_start_address"`
 }
 
 // ComponentAction defines an action that a component can perform.
 type ComponentAction struct {
-    Name        string `yaml:"name"`
-    Description string `yaml:"description"`
-    Args        string `yaml:"args,omitempty"`
+    Name        string `yaml:"name" json:"name"`
+    Description string `yaml:"description" json:"description"`
+    Args        string `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 // ComponentInfo contains all information about a plugin component.
 type ComponentInfo struct {
-    ID            string            `yaml:"id"`
-    Name          string            `yaml:"name"`
-    ComponentType string            `yaml:"component_type"`
-    Description   string            `yaml:"description"`
-    PythonModule  string            `yaml:"python_module"`
-    JSModule      string            `yaml:"js_module"`
-    Metadata      ComponentMetadata `yaml:"metadata"`
-    Actions       []ComponentAction `yaml:"actions"`
+    ID            string            `yaml:"id" json:"id"`
+    PluginName    string            `yaml:"plugin_name" json:"plugin_name"`
+    Command       string            `yaml:"command" json:"command"`
+    Name          string            `yaml:"name" json:"name"`
+    ComponentType string            `yaml:"component_type" json:"component_type"`
+    Description   string            `yaml:"description" json:"description"`
+    PythonModule  string            `yaml:"python_module" json:"python_module"`
+    JSModule      string            `yaml:"js_module" json:"js_module"`
+    Metadata      ComponentMetadata `yaml:"metadata" json:"metadata"`
+    Actions       []ComponentAction `yaml:"actions" json:"actions"`
 }
 
 // PluginManifest represents the root structure of the plugin manifest YAML.
@@ -66,6 +69,71 @@ func findComponent(manifest *PluginManifest, id string) *ComponentInfo {
         }
     }
     return nil
+}
+
+func dirExists(path string) bool {
+    info, err := os.Stat(path)
+    return err == nil && info.IsDir()
+}
+
+func pluginRoot() string {
+    if envRoot := os.Getenv("PLUGIN_ROOT"); envRoot != "" {
+        return envRoot
+    }
+
+    cwd, err := os.Getwd()
+    if err == nil {
+        candidate := filepath.Join(cwd, "plugins")
+        if dirExists(candidate) {
+            return candidate
+        }
+        candidate = filepath.Join(cwd, "..", "plugins")
+        if dirExists(candidate) {
+            return candidate
+        }
+    }
+
+    return "plugins"
+}
+
+func saveManifest(path string, manifest *PluginManifest) error {
+    if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+        return err
+    }
+    data, err := yaml.Marshal(manifest)
+    if err != nil {
+        return err
+    }
+    return os.WriteFile(path, data, 0o644)
+}
+
+func scanPlugins(root string) (*PluginManifest, error) {
+    files, err := os.ReadDir(root)
+    if err != nil {
+        return nil, err
+    }
+
+    manifest := &PluginManifest{}
+    for _, file := range files {
+        if !file.IsDir() {
+            continue
+        }
+        componentJSON := filepath.Join(root, file.Name(), "js", "component.json")
+        data, err := os.ReadFile(componentJSON)
+        if err != nil {
+            continue
+        }
+        var component ComponentInfo
+        if err := json.Unmarshal(data, &component); err != nil {
+            continue
+        }
+        manifest.Components = append(manifest.Components, component)
+    }
+
+    if len(manifest.Components) == 0 {
+        return nil, fmt.Errorf("no plugin components found in %s", root)
+    }
+    return manifest, nil
 }
 
 // listComponents prints all available components in the manifest.
@@ -108,8 +176,17 @@ func main() {
 
     manifest, err := loadManifest(*manifestPath)
     if err != nil {
-        fmt.Fprintf(os.Stderr, "Failed to load plugin manifest: %v\n", err)
-        os.Exit(1)
+        pluginRoot := pluginRoot()
+        fmt.Fprintf(os.Stderr, "Warning: failed to load plugin manifest: %v\n", err)
+        fmt.Fprintf(os.Stderr, "Attempting to scan plugins from %s...\n", pluginRoot)
+        manifest, err = scanPlugins(pluginRoot)
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Failed to discover plugin components: %v\n", err)
+            os.Exit(1)
+        }
+        if err := saveManifest(*manifestPath, manifest); err != nil {
+            fmt.Fprintf(os.Stderr, "Warning: failed to save generated manifest: %v\n", err)
+        }
     }
 
     if *list {

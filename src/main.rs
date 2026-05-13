@@ -22,7 +22,7 @@ use output::{print_banner, print_mcu_info, print_stlink_info};
 use plugin::PluginManager;
 use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
-use utils::{check_stlink_tools_installed, is_root};
+use utils::{check_stlink_tools_installed, ensure_plugin_loader_binary, find_project_root, is_project_root, is_root, manifest_path, print_environment_summary, plugin_dir};
 
 /// 应用程序的主入口点
 ///
@@ -34,10 +34,24 @@ fn main() {
     println!();
     print_banner();
 
+    print_environment_summary();
+    if !is_project_root() {
+        if let Some(root) = find_project_root() {
+            println!("{}", format!("[!] 当前目录不是仓库根目录，已定位到仓库根目录：{}", root.display()).yellow());
+        } else {
+            println!("{}", "[!] 无法定位仓库根目录，请确保在项目仓库或其子目录中运行。".yellow());
+        }
+    }
+
+    // 自动尝试构建 plugin-loader 二进制
+    if !ensure_plugin_loader_binary() {
+        println!("{}", "[!] plugin-loader 二进制未找到，若需要插件功能请先执行 go build。".yellow());
+    }
+
     // 探测并生成插件清单
     println!("{}", "[*] 探测插件组件...".cyan());
     let start_time = std::time::Instant::now();
-    let plugin_manager = PluginManager::probe_and_generate_manifest("plugins", "plugins/manifest.yaml");
+    let plugin_manager = PluginManager::probe_and_generate_manifest(&plugin_dir(), &manifest_path());
     let duration = start_time.elapsed();
 
     if let Some(manager) = &plugin_manager {

@@ -96,6 +96,9 @@ impl PluginManager {
             .collect::<Vec<_>>();
 
         let manifest = PluginManifest { components };
+        if let Some(parent_dir) = manifest_path.parent() {
+            let _ = fs::create_dir_all(parent_dir);
+        }
         let _ = fs::write(manifest_path, serde_yaml::to_string(&manifest).unwrap_or_default());
         Some(PluginManager { manifest })
     }
