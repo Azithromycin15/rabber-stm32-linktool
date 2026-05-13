@@ -4,14 +4,15 @@
 //! 组件查找和命令验证功能。
 
 use colored::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
 
 /// 组件元数据结构
 ///
 /// 包含组件的硬件信息，如供应商 ID、产品 ID 等。
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ComponentMetadata {
     pub vendor_id: String,
     pub product_ids: Vec<String>,
@@ -23,7 +24,7 @@ pub struct ComponentMetadata {
 ///
 /// 定义组件支持的命令及其描述。
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ComponentAction {
     pub name: String,
     pub description: String,
@@ -34,9 +35,11 @@ pub struct ComponentAction {
 ///
 /// 包含组件的完整信息，包括 ID、名称、类型和支持的动作。
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ComponentInfo {
     pub id: String,
+    pub plugin_name: String,
+    pub command: String,
     pub name: String,
     pub component_type: String,
     pub description: String,
@@ -49,7 +52,7 @@ pub struct ComponentInfo {
 /// 插件清单结构
 ///
 /// 包含所有可用组件的列表。
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PluginManifest {
     pub components: Vec<ComponentInfo>,
 }
@@ -70,6 +73,41 @@ impl PluginManager {
         let data = fs::read_to_string(path).ok()?;
         let manifest: PluginManifest = serde_yaml::from_str(&data).ok()?;
         Some(PluginManager { manifest })
+    }
+
+    /// 探测并生成插件清单
+    ///
+    /// 扫描 plugins 目录，读取每个组件的 component.json 文件并生成 manifest.yaml。
+    pub fn probe_and_generate_manifest<P: AsRef<Path>>(plugins_dir: P, manifest_path: P) -> Option<Self> {
+        let plugins_dir = plugins_dir.as_ref();
+        let manifest_path = manifest_path.as_ref();
+
+        let components = fs::read_dir(plugins_dir)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .filter_map(|path| {
+                let component_json = path.join("js").join("component.json");
+                fs::File::open(&component_json)
+                    .ok()
+                    .and_then(|file| serde_json::from_reader(file).ok())
+            })
+            .collect::<Vec<_>>();
+
+        let manifest = PluginManifest { components };
+        let _ = fs::write(manifest_path, serde_yaml::to_string(&manifest).unwrap_or_default());
+        Some(PluginManager { manifest })
+    }
+
+    /// 组件总数
+    pub fn count_components(&self) -> usize {
+        self.manifest.components.len()
+    }
+
+    /// 插件清单是否具备可用组件
+    pub fn is_ready(&self) -> bool {
+        !self.manifest.components.is_empty()
     }
 
     /// 列出所有组件

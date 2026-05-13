@@ -38,51 +38,63 @@ pub fn prompt_install_stlink_tools() -> bool {
 }
 
 pub fn install_stlink_tools() -> bool {
-    let pm = detect_package_manager();
-    let (command, args) = match pm {
-        PackageManager::Apt => ("apt-get", vec!["install", "-y", "stlink-tools"]),
-        PackageManager::Pacman => ("pacman", vec!["-S", "--noconfirm", "stlink"]),
-        PackageManager::Dnf => ("dnf", vec!["install", "-y", "stlink"]),
-        PackageManager::Zypper => ("zypper", vec!["install", "-y", "stlink"]),
-        PackageManager::Unknown => {
-            println!("{}", "无法识别当前 Linux 发行版或包管理器。".red());
-            return false;
-        }
-    };
+    #[cfg(target_os = "linux")]
+    {
+        let pm = detect_package_manager();
+        let (command, args) = match pm {
+            PackageManager::Apt => ("apt-get", vec!["install", "-y", "stlink-tools"]),
+            PackageManager::Pacman => ("pacman", vec!["-S", "--noconfirm", "stlink"]),
+            PackageManager::Dnf => ("dnf", vec!["install", "-y", "stlink"]),
+            PackageManager::Zypper => ("zypper", vec!["install", "-y", "stlink"]),
+            PackageManager::Unknown => {
+                println!("{}", "无法识别当前 Linux 发行版或包管理器。".red());
+                return false;
+            }
+        };
 
-    let distro = detect_linux_distro().unwrap_or_else(|| "未知发行版".to_string());
-    println!(
-        "{}",
-        format!(
-            "当前操作系统: {}，准备使用 {} 安装 stlink 工具...",
-            distro,
-            pm.name()
-        )
-        .cyan()
-    );
+        let distro = detect_linux_distro().unwrap_or_else(|| "未知发行版".to_string());
+        println!(
+            "{}",
+            format!(
+                "当前操作系统: {}，准备使用 {} 安装 stlink 工具...",
+                distro,
+                pm.name()
+            )
+            .cyan()
+        );
 
-    let mut install_cmd = if is_root() {
-        Command::new(command)
-    } else {
-        let mut cmd = Command::new("sudo");
-        cmd.arg(command);
-        cmd
-    };
-    let install_cmd = install_cmd.args(args.iter());
+        let mut install_cmd = if is_root() {
+            Command::new(command)
+        } else {
+            let mut cmd = Command::new("sudo");
+            cmd.arg(command);
+            cmd
+        };
+        let install_cmd = install_cmd.args(args.iter());
 
-    match install_cmd.status() {
-        Ok(status) if status.success() => {
-            println!("{}", "stlink-tools 安装成功。".green());
-            true
+        match install_cmd.status() {
+            Ok(status) if status.success() => {
+                println!("{}", "stlink-tools 安装成功。".green());
+                true
+            }
+            Ok(status) => {
+                println!("{}", format!("安装失败，退出码 {}。", status.code().unwrap_or(-1)).red());
+                false
+            }
+            Err(err) => {
+                println!("{}", format!("无法启动安装命令: {}", err).red());
+                false
+            }
         }
-        Ok(status) => {
-            println!("{}", format!("安装失败，退出码 {}。", status.code().unwrap_or(-1)).red());
-            false
-        }
-        Err(err) => {
-            println!("{}", format!("无法启动安装命令: {}", err).red());
-            false
-        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        println!("{}", "在 Windows 上，请手动下载并安装 ST-Link Utility:".cyan());
+        println!("{}", "下载地址: https://www.st.com/en/development-tools/stsw-link004.html".yellow());
+        println!("{}", "安装后，请确保 ST-LINK_CLI.exe 在 PATH 中或位于默认安装路径。".yellow());
+        println!("{}", "或者使用 OpenOCD 作为替代:".cyan());
+        println!("{}", "下载地址: https://openocd.org/".yellow());
+        false // 返回 false，因为无法自动安装
     }
 }
 
@@ -138,8 +150,20 @@ fn read_os_release() -> Option<HashMap<String, String>> {
 }
 
 fn is_root() -> bool {
-    match Command::new("id").arg("-u").output() {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
-        _ => false,
+    #[cfg(target_os = "linux")]
+    {
+        match Command::new("id").arg("-u").output() {
+            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
+            _ => false,
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // 在 Windows 上，检查是否以管理员身份运行
+        if let Ok(output) = Command::new("net").args(&["session"]).output() {
+            output.status.success()
+        } else {
+            false
+        }
     }
 }

@@ -1,33 +1,34 @@
-# Plugin Manifest for ST-Link Tool
-# This YAML file defines the available plugin components and their capabilities.
-# Each component specifies its metadata, supported actions, and module paths.
-
 components:
-  - id: stlink_v2
-    name: ST-Link V2
-    component_type: debugger
-    description: ST-Link V2 connector plugin for STM32 SWD flashing and MCU information.
-    python_module: plugins/stlink_v2/python/downloader.py
-    js_module: plugins/stlink_v2/js/component.js
-    metadata:
-      vendor_id: "0x0483"  # STMicroelectronics vendor ID
-      product_ids:
-        - "0x3748"  # ST-Link/V2
-        - "0x374B"  # ST-Link/V2-1
-      supported_platforms:
-        - linux
-        - windows
-      flash_start_address: "0x08000000"  # Default flash start address for STM32
-    actions:
-      - name: probe
-        description: Probe the target MCU and gather info
-        args: ""
-      - name: info
-        description: Show ST-Link component status and metadata
-        args: ""
-      - name: flash
-        description: Flash a firmware file into MCU memory
-        args: "<file>"
-      - name: reset
-        description: Reset the MCU after flashing or manually
-        args: ""
+- id: stlink_v2
+  plugin_name: ST-Link V2 Downloader
+  command: stlink
+  name: ST-Link V2
+  component_type: debugger
+  description: ST-Link V2 downloader component for STM32 SWD flashing and MCU information.
+  python_module: plugins/stlink_v2/python/downloader.py
+  js_module: plugins/stlink_v2/js/component.json
+  metadata:
+    vendor_id: '0x0483'
+    product_ids:
+    - '0x3748'
+    - '0x374B'
+    supported_platforms:
+    - linux
+    - windows
+    flash_start_address: '0x08000000'
+  actions:
+  - name: probe
+    description: Probe the target MCU and gather info
+    args: ''
+  - name: info
+    description: Show ST-Link component status and metadata
+    args: ''
+  - name: flash
+    description: Flash a firmware file into MCU memory
+    args: <file> [--address <addr>] [--no-verify]
+  - name: verify
+    description: Verify the flashed firmware
+    args: <file> [--address <addr>]
+  - name: reset
+    description: Reset the MCU after flashing or manually
+    args: ''

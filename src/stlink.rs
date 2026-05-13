@@ -64,38 +64,43 @@ fn default_stlink_metadata() -> Option<(u16, Vec<u16>)> {
 ///
 /// 扫描 USB 设备列表，检查是否存在匹配的 ST-Link 设备。
 pub fn detect_stlink_by_usb() -> bool {
-    let (vendor_id, product_ids) = match default_stlink_metadata() {
-        Some((vendor_id, product_ids)) => (vendor_id, product_ids),
-        None => (0x0483, vec![0x3748, 0x374B]),
-    };
+    #[cfg(target_os = "linux")]
+    {
+        let (vendor_id, product_ids) = default_stlink_metadata()
+            .unwrap_or((0x0483, vec![0x3748, 0x374B]));
 
-    let entries = fs::read_dir(SYS_USB_DEVICES);
-    if entries.is_err() {
-        return false;
+        fs::read_dir(SYS_USB_DEVICES)
+            .ok()
+            .into_iter()
+            .flat_map(|dir| dir.flatten())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c != '.')
+            })
+            .filter_map(|entry| {
+                let path = entry.path();
+                let vendor_text = fs::read_to_string(path.join("idVendor")).ok()?;
+                let product_text = fs::read_to_string(path.join("idProduct")).ok()?;
+                let vid = u16::from_str_radix(vendor_text.trim().trim_start_matches("0x"), 16).ok()?;
+                let pid = u16::from_str_radix(product_text.trim().trim_start_matches("0x"), 16).ok()?;
+                Some((vid, pid))
+            })
+            .any(|(vid, pid)| vid == vendor_id && product_ids.contains(&pid))
     }
-
-    for entry in entries.unwrap().flatten() {
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
-        if name.starts_with('.') {
-            continue;
-        }
-
-        let vendor_path = format!("{}/{}/idVendor", SYS_USB_DEVICES.trim_end_matches('/'), name);
-        let product_path = format!("{}/{}/idProduct", SYS_USB_DEVICES.trim_end_matches('/'), name);
-
-        if let (Ok(vendor_text), Ok(product_text)) = (fs::read_to_string(&vendor_path), fs::read_to_string(&product_path)) {
-            let vendor = vendor_text.trim().trim_start_matches("0x");
-            let product = product_text.trim().trim_start_matches("0x");
-            if let (Ok(vid), Ok(pid)) = (u16::from_str_radix(vendor, 16), u16::from_str_radix(product, 16)) {
-                if vid == vendor_id && product_ids.contains(&pid) {
-                    return true;
-                }
-            }
-        }
+    #[cfg(target_os = "windows")]
+    {
+        // 在 Windows 上，使用 PowerShell 检查 USB 设备
+        use crate::utils::execute_command;
+        let output = execute_command(
+            "powershell",
+            &["-Command", "Get-PnpDevice | Where-Object { $_.InstanceId -like '*USB*' -and ($_.DeviceID -like '*0483*' -or $_.DeviceID -like '*STLINK*') } | Select-Object -First 1"],
+        );
+        output.status == 0 && !output.stdout.trim().is_empty()
     }
-
-    false
 }
 
 /// 获取 ST-Link 设备信息
@@ -104,27 +109,43 @@ pub fn detect_stlink_by_usb() -> bool {
 pub fn get_stlink_info() -> STLinkInfo {
     let mut info = STLinkInfo::default();
     if let Some(cli_path) = find_stlink_cli_tool() {
-        let version_output = execute_command(&cli_path, &["--version"]);
-        if let Some(pos) = version_output.stdout.find('v') {
-            let rest = &version_output.stdout[pos..];
-            if let Some(end) = rest.find(|c: char| c.is_whitespace()) {
-                info.version = rest[..end].to_string();
+        #[cfg(target_os = "linux")]
+        {
+            let version_output = execute_command(&cli_path, &["--version"]);
+            if let Some(pos) = version_output.stdout.find('v') {
+                let rest = &version_output.stdout[pos..];
+                if let Some(end) = rest.find(|c: char| c.is_whitespace()) {
+                    info.version = rest[..end].to_string();
+                } else {
+                    info.version = rest.trim().to_string();
+                }
             } else {
-                info.version = rest.trim().to_string();
+                info.version = "Unknown".to_string();
             }
-        } else {
-            info.version = "Unknown".to_string();
-        }
 
-        let serial_output = execute_command(&cli_path, &["--serial"]);
-        for line in serial_output.stdout.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("serial:") || trimmed.starts_with("Serial") {
-                if let Some(idx) = trimmed.find(':') {
-                    info.serial = trimmed[idx + 1..].trim().to_string();
-                    break;
+            let serial_output = execute_command(&cli_path, &["--serial"]);
+            for line in serial_output.stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("serial:") || trimmed.starts_with("Serial") {
+                    if let Some(idx) = trimmed.find(':') {
+                        info.serial = trimmed[idx + 1..].trim().to_string();
+                        break;
+                    }
                 }
             }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            // 对于 ST-LINK_CLI.exe，使用不同的参数
+            let version_output = execute_command(&cli_path, &["-Version"]);
+            if version_output.status == 0 {
+                info.version = version_output.stdout.trim().to_string();
+            } else {
+                info.version = "Unknown".to_string();
+            }
+
+            // 序列号可能需要不同的命令
+            info.serial = "Not available".to_string();
         }
     }
     if let Some((vendor_id, product_ids)) = default_stlink_metadata() {
@@ -143,15 +164,12 @@ pub fn get_stlink_info() -> STLinkInfo {
 pub fn parse_flash_size(text: &str) -> Option<u32> {
     let text = text.trim();
     let number: String = text.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if number.is_empty() {
-        return None;
-    }
     let value: u32 = number.parse().ok()?;
-    if text.contains("KiB") || text.contains("Ki") {
+    let suffix = text[number.len()..].trim().to_ascii_lowercase();
+
+    if suffix.starts_with("kib") || suffix.starts_with("ki") || suffix.starts_with("kb") || suffix.starts_with('k') {
         Some(value * 1024)
-    } else if text.contains("KB") || text.contains("K") {
-        Some(value * 1024)
-    } else if text.contains("MiB") || text.contains("M") {
+    } else if suffix.starts_with("mib") || suffix.starts_with('m') {
         Some(value * 1024 * 1024)
     } else {
         Some(value)
@@ -171,7 +189,11 @@ pub fn get_mcu_info_via_swd() -> MCUInfo {
     println!();
     print!("{}", "[*] 尝试方法1: st-info 探测...".cyan());
     io::stdout().flush().ok();
-    let probe_output = execute_command(&cli_path, &["--probe"]);
+    let probe_output = if cfg!(target_os = "linux") {
+        execute_command(&cli_path, &["--probe"])
+    } else {
+        execute_command(&cli_path, &["-c", "SN=?", "-P"])
+    };
 
     if probe_output.status == 0 && probe_output.stdout.contains("chipid") {
         println!(" {}", "成功".green());
@@ -194,7 +216,12 @@ pub fn get_mcu_info_via_swd() -> MCUInfo {
     println!(" {}", "失败，尝试方法2...".red());
     print!("{}", "[*] 尝试方法2: 读取 Flash 大小...".cyan());
     io::stdout().flush().ok();
-    let flash_output = execute_command(&cli_path, &["--flash"]);
+    let flash_output = if cfg!(target_os = "linux") {
+        execute_command(&cli_path, &["--flash"])
+    } else {
+        execute_command(&cli_path, &["-c", "SN=?", "-P"])
+    };
+
     if flash_output.status == 0 {
         if let Some(size) = parse_flash_size(&flash_output.stdout) {
             info.flash_size = size;
@@ -202,7 +229,12 @@ pub fn get_mcu_info_via_swd() -> MCUInfo {
     }
 
     if info.flash_size > 0 {
-        let chipid_output = execute_command(&cli_path, &["--chipid"]);
+        let chipid_output = if cfg!(target_os = "linux") {
+            execute_command(&cli_path, &["--chipid"])
+        } else {
+            execute_command(&cli_path, &["-c", "SN=?", "-P"])
+        };
+
         if chipid_output.status == 0 {
             info.chip_id = chipid_output.stdout.trim().to_string();
         }

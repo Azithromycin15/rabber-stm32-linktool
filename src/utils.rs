@@ -18,13 +18,25 @@ pub struct CommandResult {
 ///
 /// 通过执行 `id -u` 命令检查用户 ID 是否为 0。
 pub fn is_root() -> bool {
-    if let Ok(output) = Command::new("id").arg("-u").output() {
-        if output.status.success() {
-            let uid = String::from_utf8_lossy(&output.stdout);
-            return uid.trim() == "0";
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = Command::new("id").arg("-u").output() {
+            if output.status.success() {
+                let uid = String::from_utf8_lossy(&output.stdout);
+                return uid.trim() == "0";
+            }
+        }
+        false
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // 在 Windows 上，检查是否以管理员身份运行
+        if let Ok(output) = Command::new("net").args(&["session"]).output() {
+            output.status.success()
+        } else {
+            false
         }
     }
-    false
 }
 
 /// 执行外部命令
@@ -70,12 +82,19 @@ pub fn find_tool(name: &str, possible_paths: &[&str]) -> Option<String> {
 ///
 /// 查找 st-info 命令的路径。
 pub fn find_stlink_cli_tool() -> Option<String> {
+    #[cfg(target_os = "linux")]
     let possible_paths = [
         "/usr/bin/st-info",
         "/usr/local/bin/st-info",
         "/bin/st-info",
         "/usr/bin/stlink-info",
         "/usr/local/bin/stlink-info",
+    ];
+    #[cfg(target_os = "windows")]
+    let possible_paths = [
+        "C:\\Program Files (x86)\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
+        "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
+        "ST-LINK_CLI.exe",
     ];
     find_tool("st-info", &possible_paths)
 }
@@ -84,12 +103,19 @@ pub fn find_stlink_cli_tool() -> Option<String> {
 ///
 /// 查找 st-flash 命令的路径。
 pub fn find_stlink_programmer_tool() -> Option<String> {
+    #[cfg(target_os = "linux")]
     let possible_paths = [
         "/usr/bin/st-flash",
         "/usr/local/bin/st-flash",
         "/bin/st-flash",
         "/usr/bin/stlink-flash",
         "/usr/local/bin/stlink-flash",
+    ];
+    #[cfg(target_os = "windows")]
+    let possible_paths = [
+        "C:\\Program Files (x86)\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
+        "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
+        "ST-LINK_CLI.exe",
     ];
     find_tool("st-flash", &possible_paths)
 }

@@ -34,18 +34,32 @@ fn main() {
     println!();
     print_banner();
 
-    // 加载插件组件
-    println!("{}", "[*] 加载插件组件...".cyan());
-    let plugin_manager = PluginManager::load_from("plugins/manifest.yaml");
+    // 探测并生成插件清单
+    println!("{}", "[*] 探测插件组件...".cyan());
+    let start_time = std::time::Instant::now();
+    let plugin_manager = PluginManager::probe_and_generate_manifest("plugins", "plugins/manifest.yaml");
+    let duration = start_time.elapsed();
+
     if let Some(manager) = &plugin_manager {
-        manager.list_components();
+        println!(
+            "{}",
+            format!("[✓] 插件探测完成：{} 个组件，耗时 {} ms", manager.count_components(), duration.as_millis()).green()
+        );
+        if manager.is_ready() {
+            manager.list_components();
+        } else {
+            println!("{}", "[!] 未发现可用插件组件，请检查 plugins 目录。".yellow());
+        }
     } else {
-        println!("{}", "未找到插件清单，将使用默认内置配置。".yellow());
+        println!("{}", "[✗] 插件探测失败，未生成 manifest.yaml。".red());
     }
 
     // 检查 root 权限
     if !is_root() {
+        #[cfg(target_os = "linux")]
         println!("{}", "[!] 建议以 root 权限运行以获得完整 USB 访问权限".yellow());
+        #[cfg(target_os = "windows")]
+        println!("{}", "[!] 建议以管理员权限运行以获得完整 USB 访问权限".yellow());
     }
 
     // 检查 ST-Link 工具链
@@ -72,11 +86,19 @@ fn main() {
     io::stdout().flush().ok();
     if !detect_stlink_by_usb() {
         println!(" {}", "未检测到 ST-Link 设备".red());
-        println!("{}", "[!] 尝试列出所有 USB 设备...".yellow());
-        let _ = Command::new("sh")
-            .arg("-c")
-            .arg("lsusb | grep -i stm32 || lsusb | grep -i st-link")
-            .status();
+        #[cfg(target_os = "linux")]
+        {
+            println!("{}", "[!] 尝试列出所有 USB 设备...".yellow());
+            let _ = Command::new("sh")
+                .arg("-c")
+                .arg("lsusb | grep -i stm32 || lsusb | grep -i st-link")
+                .status();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            println!("{}", "[!] 请检查设备管理器中是否有 ST-Link 设备。".yellow());
+            println!("{}", "[!] 尝试运行: Get-PnpDevice | Where-Object { $_.InstanceId -like '*USB*' }".yellow());
+        }
         return;
     }
     println!(" {}", "检测到 ST-Link 设备".green());

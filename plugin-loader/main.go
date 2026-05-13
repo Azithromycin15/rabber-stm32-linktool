@@ -77,11 +77,17 @@ func listComponents(manifest *PluginManifest) {
 }
 
 // executePython runs the Python script for the specified component and action.
-func executePython(component *ComponentInfo, action string, filePath string) error {
+func executePython(component *ComponentInfo, action string, filePath string, address string, noVerify bool) error {
     scriptPath := filepath.Clean(component.PythonModule)
     args := []string{scriptPath, "--action", action}
     if filePath != "" {
         args = append(args, "--file", filePath)
+    }
+    if address != "" {
+        args = append(args, "--address", address)
+    }
+    if noVerify {
+        args = append(args, "--no-verify")
     }
     cmd := exec.Command("python3", args...)
     cmd.Stdout = os.Stdout
@@ -94,8 +100,10 @@ func main() {
     manifestPath := flag.String("manifest", "plugins/manifest.yaml", "Path to plugin manifest YAML")
     list := flag.Bool("list", false, "List available plugin components")
     componentID := flag.String("component", "stlink_v2", "Component ID to load")
-    action := flag.String("action", "info", "Action to execute: probe, info, flash, reset")
-    filePath := flag.String("file", "", "File path for flash action")
+    action := flag.String("action", "info", "Action to execute: probe, info, flash, reset, verify")
+    filePath := flag.String("file", "", "File path for flash/verify action")
+    address := flag.String("address", "", "Start address for flash/verify action")
+    noVerify := flag.Bool("no-verify", false, "Skip verification after flash")
     flag.Parse()
 
     manifest, err := loadManifest(*manifestPath)
@@ -115,13 +123,15 @@ func main() {
         os.Exit(1)
     }
 
-    if *action == "flash" && *filePath == "" {
-        fmt.Fprintf(os.Stderr, "flash action requires --file <path>\n")
-        os.Exit(1)
+    if *action == "flash" || *action == "verify" {
+        if *filePath == "" {
+            fmt.Fprintf(os.Stderr, "%s action requires --file <path>\n", *action)
+            os.Exit(1)
+        }
     }
 
     fmt.Printf("Loading component '%s' (%s)\n", component.Name, component.ID)
-    err = executePython(component, *action, *filePath)
+    err = executePython(component, *action, *filePath, *address, *noVerify)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Component execution failed: %v\n", err)
         os.Exit(1)
