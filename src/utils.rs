@@ -8,6 +8,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use reqwest::blocking;
+use zip;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use which::which;
@@ -166,6 +168,13 @@ pub fn plugin_dir() -> PathBuf {
     PathBuf::from("plugins")
 }
 
+pub fn logs_dir() -> PathBuf {
+    if let Some(root) = find_project_root() {
+        return root.join("logs");
+    }
+    PathBuf::from("logs")
+}
+
 pub fn manifest_path() -> PathBuf {
     if let Ok(path) = env::var("PLUGIN_MANIFEST") {
         return PathBuf::from(path);
@@ -218,12 +227,6 @@ pub fn check_go_installed() -> bool {
     find_tool("go", &possible_paths).is_some()
 }
 
-/// 检查 git 是否已安装
-pub fn check_git_installed() -> bool {
-    let possible_paths = ["git", "git.exe"];
-    find_tool("git", &possible_paths).is_some()
-}
-
 /// 判断当前 IP 是否为中国大陆 IP
 pub fn is_china_ip() -> Option<bool> {
     if let Some(curl) = find_tool("curl", &["curl", "curl.exe"]) {
@@ -259,43 +262,123 @@ fn select_plugin_loader_repo() -> &'static str {
     }
 }
 
-/// 下载 plugin-loader 源码并准备编译环境
-pub fn ensure_plugin_loader_source() -> bool {
-    let source_dir = plugin_loader_dir();
-    let main_go = source_dir.join("main.go");
-    if main_go.is_file() {
-        return true;
+/// 下载并解压ZIP文件到指定目录
+fn download_file(url: &str, dest: &Path) -> bool {
+    let response = match blocking::get(url) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let bytes = match response.bytes() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    if let Some(parent) = dest.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    fs::write(dest, &bytes).is_ok()
+}
+
+fn download_and_extract_zip(url: &str, dest: &Path) -> bool {
+    let response = match blocking::get(url) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    let bytes = match response.bytes() {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    let zip_path = dest.join("download.zip");
+    if let Some(parent) = zip_path.parent() {
+        let _ = fs::create_dir_all(parent);
     }
 
-    if source_dir.exists() {
-        if let Ok(mut entries) = fs::read_dir(&source_dir) {
-            if entries.next().is_some() && !main_go.is_file() {
-                // 目录存在但未找到源码，先保留目录，不覆盖用户内容
-                return false;
-            }
-        }
-    }
-
-    if source_dir.exists() {
-        let _ = fs::remove_dir_all(&source_dir);
-    }
-
-    let repo = select_plugin_loader_repo();
-    if !check_git_installed() {
+    let write_result = fs::write(&zip_path, &bytes);
+    if write_result.is_err() {
+        let _ = fs::remove_file(&zip_path);
         return false;
     }
 
-    if let Some(git) = find_tool("git", &["git", "git.exe"]) {
-        if let Some(parent) = source_dir.parent() {
-            let clone_status = Command::new(git)
-                .args(["clone", "--depth", "1", repo, source_dir.to_str().unwrap_or("plugin-loader")])
-                .current_dir(parent)
-                .status();
-            return clone_status.map(|s| s.success()).unwrap_or(false);
+    let extracted = extract_zip_file(&zip_path, dest);
+    let _ = fs::remove_file(&zip_path);
+    extracted
+}
+
+/// 解压ZIP文件到指定目录
+fn extract_zip_file(zip_path: &Path, dest: &Path) -> bool {
+    let file = match fs::File::open(zip_path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut archive = match zip::ZipArchive::new(file) {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    for i in 0..archive.len() {
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let outpath = dest.join(file.name());
+        if file.name().ends_with('/') {
+            let _ = fs::create_dir_all(&outpath);
+        } else {
+            if let Some(p) = outpath.parent() {
+                let _ = fs::create_dir_all(p);
+            }
+            let mut outfile = match fs::File::create(&outpath) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let _ = std::io::copy(&mut file, &mut outfile);
         }
     }
-    false
+    true
 }
+
+/// 下载 plugin-loader 可执行文件到 plugins 目录
+pub fn ensure_plugin_loader_source() -> bool {
+    let plugin_path = plugin_dir().join(plugin_loader_executable_name());
+    if plugin_path.is_file() {
+        return true;
+    }
+
+    if let Some(parent) = plugin_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let url = if cfg!(target_os = "windows") {
+        "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader.exe"
+    } else {
+        "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader"
+    };
+    download_file(url, &plugin_path)
+}
+
+pub fn ensure_plugins_downloaded() -> bool {
+    let plugins_dir = plugin_dir();
+    let _ = fs::create_dir_all(&plugins_dir);
+    let stlink_dir = plugins_dir.join("stlink_v2");
+    let cmsis_dir = plugins_dir.join("cmsis_dap");
+    let mut ok = true;
+    if !stlink_dir.exists() {
+        let url = "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/stlink_v2.zip";
+        if !download_and_extract_zip(url, &plugins_dir) {
+            log_warn("Failed to download stlink_v2");
+            ok = false;
+        }
+    }
+    if !cmsis_dir.exists() {
+        let url = "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/cmsis_dap.zip";
+        if !download_and_extract_zip(url, &plugins_dir) {
+            log_warn("Failed to download cmsis_dap");
+            ok = false;
+        }
+    }
+    ok
+}
+
 
 /// 创建 Go 安装脚本，提供安装方案给用户。
 pub fn create_go_install_script() -> Option<PathBuf> {
@@ -345,6 +428,8 @@ fi
 /// 准备运行时环境，尝试自动下载 plugin-loader 源码并创建 Go 安装脚本。
 pub fn prepare_runtime_environment() -> bool {
     let mut ok = true;
+    let logs_dir = logs_dir();
+    let _ = fs::create_dir_all(&logs_dir);
     let go_installed = check_go_installed();
     let loader_source_ready = ensure_plugin_loader_source();
 
@@ -367,6 +452,11 @@ pub fn prepare_runtime_environment() -> bool {
         ok = false;
     }
 
+    if !ensure_plugins_downloaded() {
+        log_warn("插件下载失败。");
+        ok = false;
+    }
+
     if go_installed && loader_source_ready {
         if !ensure_plugin_loader_binary() {
             log_warn("plugin-loader 二进制构建失败。");
@@ -385,9 +475,12 @@ pub fn find_plugin_loader_tool() -> Option<String> {
 
     let mut paths = Vec::new();
     if let Some(root) = find_project_root() {
+        let root_plugins = root.join("plugins").join(plugin_loader_executable_name());
         let root_loader = root.join("plugin-loader").join(plugin_loader_executable_name());
+        paths.push(root_plugins);
         paths.push(root_loader);
     }
+    paths.push(PathBuf::from("plugins").join(plugin_loader_executable_name()));
     paths.push(PathBuf::from("plugin-loader").join(plugin_loader_executable_name()));
     paths.push(PathBuf::from("./plugin-loader").join(plugin_loader_executable_name()));
     paths.push(PathBuf::from("/usr/local/bin").join(plugin_loader_executable_name()));

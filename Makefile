@@ -12,12 +12,13 @@ WIN_TARGET ?= x86_64-pc-windows-gnu
 # Go plugin loader directory and binary
 GO_DIR := plugin-loader
 PLUGIN_LOADER_BIN := $(GO_DIR)/plugin-loader
+PLUGIN_LOADER_WIN_BIN := $(GO_DIR)/plugin-loader.exe
 
 # Python interpreter
 PYTHON := python3
 
 # Phony targets (not files)
-.PHONY: all build rust plugin-loader check run-plugin release clean
+.PHONY: all build rust plugin-loader plugin-loader-win check run-plugin release clean
 
 # Default target
 all: build
@@ -33,6 +34,9 @@ rust:
 plugin-loader:
 	cd $(GO_DIR) && go build -o plugin-loader
 
+plugin-loader-win:
+	cd $(GO_DIR) && GOOS=windows GOARCH=amd64 go build -o plugin-loader.exe
+
 # Check Rust code without building
 check:
 	cargo check
@@ -42,11 +46,12 @@ run-plugin: plugin-loader
 	$(PLUGIN_LOADER_BIN) --manifest plugins/manifest.yaml --list
 
 # Create release builds for Linux and Windows
-release: build
+release: build plugin-loader-win
 	mkdir -p release
 	cp target/release/rabber-stm32-linktool release/rabber-stm32-linktool-$(VERSION)-linux
 	cargo build --release --target $(WIN_TARGET)
 	cp target/$(WIN_TARGET)/release/rabber-stm32-linktool.exe release/rabber-stm32-linktool-$(VERSION)-win64.exe
+	cp $(PLUGIN_LOADER_WIN_BIN) release/plugin-loader.exe
 
 # Clean build artifacts
 clean:
