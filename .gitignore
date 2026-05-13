@@ -8,6 +8,10 @@
 Cargo.lock
 
 # Python temporary files
+
+# IDE directories
+.idea
+.vscode
 __pycache__/
 *.pyc
 
