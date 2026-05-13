@@ -133,11 +133,36 @@ impl PluginManager {
         self.manifest.components.iter().find(|c| c.id == id)
     }
 
+    /// 获取所有下载插件组件
+    ///
+    /// 仅把 Python 模块文件名为 downloader.py 的组件视为下载选项。
+    pub fn download_components(&self) -> Vec<&ComponentInfo> {
+        self.manifest
+            .components
+            .iter()
+            .filter(|component| {
+                std::path::Path::new(&component.python_module)
+                    .file_name()
+                    .map(|name| name == "downloader.py")
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// 获取默认下载器组件
+    ///
+    /// 优先返回 ST-Link V2，如果不存在则返回第一个 CMSIS-DAP 或任何调试器组件。
+    pub fn default_downloader_component(&self) -> Option<&ComponentInfo> {
+        self.find_component("stlink_v2")
+            .or_else(|| self.find_component("cmsis_dap"))
+            .or_else(|| self.manifest.components.iter().find(|c| c.component_type == "debugger"))
+    }
+
     /// 获取默认 ST-Link 组件
     ///
-    /// 返回默认的 ST-Link V2 组件信息。
+    /// 兼容旧代码，返回默认下载器组件。
     pub fn default_stlink_component(&self) -> Option<&ComponentInfo> {
-        self.find_component("stlink_v2")
+        self.default_downloader_component()
     }
 
     /// 获取组件动作列表

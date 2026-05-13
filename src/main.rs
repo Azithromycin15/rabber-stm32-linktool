@@ -3,8 +3,8 @@
 //! 这个模块包含应用程序的入口点和初始化逻辑。
 
 mod cli;
-mod flash;
 mod install;
+mod logger;
 mod output;
 mod plugin;
 mod shell;
@@ -14,15 +14,17 @@ mod utils;
 use clap::Parser;
 use colored::*;
 use std::io::{self, Write};
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 use cli::Args;
 use install::{install_stlink_tools, prompt_install_stlink_tools};
+use logger::{info as log_info, init_logger, warn as log_warn};
 use output::{print_banner, print_mcu_info, print_stlink_info};
 use plugin::PluginManager;
 use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
-use utils::{check_stlink_tools_installed, ensure_plugin_loader_binary, find_project_root, is_project_root, is_root, manifest_path, print_environment_summary, plugin_dir};
+use utils::{check_openocd_installed, check_stlink_tools_installed, cargo_package_version, ensure_plugin_loader_binary, prepare_runtime_environment, find_project_root, is_project_root, is_root, manifest_path, print_environment_summary, plugin_dir};
 
 /// 应用程序的主入口点
 ///
@@ -31,8 +33,22 @@ use utils::{check_stlink_tools_installed, ensure_plugin_loader_binary, find_proj
 fn main() {
     let _args = Args::parse();
 
+    let log_path = init_logger().unwrap_or_else(|err| {
+        eprintln!("无法初始化日志: {}", err);
+        String::new()
+    });
+    println!("{}", format!("[日志] 写入 {}", log_path).cyan());
+    log_info(&format!("Application start, log file: {}", log_path));
+
     println!();
-    print_banner();
+    let version = cargo_package_version().unwrap_or_else(|| "1.1.2".to_string());
+    print_banner(&version);
+
+    let env_ready = prepare_runtime_environment();
+    if !env_ready {
+        println!("{}", "[!] 当前运行环境不完整，已尝试自动创建环境，请查看日志和生成的安装脚本。".yellow());
+        log_warn("Runtime environment not fully available.");
+    }
 
     print_environment_summary();
     if !is_project_root() {
@@ -46,6 +62,7 @@ fn main() {
     // 自动尝试构建 plugin-loader 二进制
     if !ensure_plugin_loader_binary() {
         println!("{}", "[!] plugin-loader 二进制未找到，若需要插件功能请先执行 go build。".yellow());
+        log_warn("plugin-loader binary could not be ensured.");
     }
 
     // 探测并生成插件清单
@@ -54,15 +71,69 @@ fn main() {
     let plugin_manager = PluginManager::probe_and_generate_manifest(&plugin_dir(), &manifest_path());
     let duration = start_time.elapsed();
 
+    let mut default_downloader_id: Option<String> = None;
     if let Some(manager) = &plugin_manager {
+        let download_plugins = manager.download_components();
         println!(
             "{}",
-            format!("[✓] 插件探测完成：{} 个组件，耗时 {} ms", manager.count_components(), duration.as_millis()).green()
+            format!(
+                "[✓] 插件探测完成：{} 个组件，{} 个下载插件，耗时 {} ms",
+                manager.count_components(),
+                download_plugins.len(),
+                duration.as_millis()
+            )
+            .green()
         );
+        if download_plugins.is_empty() {
+            println!("{}", "[!] 未发现下载插件，请检查 plugins 目录。".yellow());
+        }
         if manager.is_ready() {
             manager.list_components();
         } else {
             println!("{}", "[!] 未发现可用插件组件，请检查 plugins 目录。".yellow());
+        }
+
+        let stlink_available = check_stlink_tools_installed();
+        let openocd_available = check_openocd_installed();
+        println!("{}", "[依赖检测]".cyan());
+        println!("  ST-Link tools: {}", if stlink_available { "已安装".green() } else { "未安装".red() });
+        println!("  OpenOCD: {}", if openocd_available { "已安装".green() } else { "未安装".red() });
+
+        if !download_plugins.is_empty() {
+            let stlink_plugin = download_plugins.iter().find(|c| c.id == "stlink_v2");
+            let cmsis_plugin = download_plugins.iter().find(|c| c.id == "cmsis_dap");
+
+            if stlink_available && openocd_available && download_plugins.len() > 1 {
+                println!("{}", "请选择默认下载插件(输入编号):".cyan());
+                for (index, plugin) in download_plugins.iter().enumerate() {
+                    println!("  {}. {} ({})", index + 1, plugin.name, plugin.id);
+                }
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).ok();
+                let choice = input.trim().parse::<usize>().ok().and_then(|idx| {
+                    download_plugins.get(idx.saturating_sub(1)).map(|c| c.id.clone())
+                });
+                default_downloader_id = choice.or_else(|| download_plugins.first().map(|c| c.id.clone()));
+            } else if stlink_available {
+                default_downloader_id = stlink_plugin
+                    .or(cmsis_plugin)
+                    .or_else(|| download_plugins.first())
+                    .map(|c| c.id.clone());
+            } else if openocd_available {
+                default_downloader_id = cmsis_plugin
+                    .or(stlink_plugin)
+                    .or_else(|| download_plugins.first())
+                    .map(|c| c.id.clone());
+            } else {
+                default_downloader_id = download_plugins.first().map(|c| c.id.clone());
+            }
+
+            if let Some(selected) = &default_downloader_id {
+                println!(
+                    "{}",
+                    format!("[✓] 默认下载插件已选定：{}", selected).green()
+                );
+            }
         }
     } else {
         println!("{}", "[✗] 插件探测失败，未生成 manifest.yaml。".red());
@@ -140,5 +211,6 @@ fn main() {
     println!("\n{}", "[✓] 检测完成，进入交互模式".green());
     println!("{}", "[!] 提示: 可以使用 'help' 或 'help <plugin_id>' 获取支持的指令信息".yellow());
 
-    interactive_mode(plugin_manager);
+    interactive_mode(plugin_manager, default_downloader_id);
 }
+

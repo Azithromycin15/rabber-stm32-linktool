@@ -125,21 +125,56 @@ class STLinkDownloader:
             print(f"文件不存在: {file_path}", file=sys.stderr)
             return False
 
+        actual_file = file_path
+        cleanup_temp = False
+
+        # Check if it's an ELF file and strip debug info
+        if file_path.lower().endswith('.elf'):
+            stripped = self.strip(file_path)
+            if stripped:
+                actual_file = stripped
+                cleanup_temp = True
+            else:
+                return False
+
+        # Get file size
+        file_size = os.path.getsize(actual_file)
+
+        # Get MCU info for flash size check
+        mcu_info = self.probe()
+        if mcu_info and 'flash' in mcu_info:
+            flash_size = int(mcu_info['flash'], 16) if mcu_info['flash'].startswith('0x') else int(mcu_info['flash'])
+            if file_size > flash_size:
+                print(f"文件大小 ({file_size}) 超过 MCU Flash 大小 ({flash_size})", file=sys.stderr)
+                if cleanup_temp:
+                    os.remove(actual_file)
+                return False
+
         # Flash the firmware
         addr_str = f"0x{start_address:08X}"
-        code, _ = self.run_command([self.st_flash_cmd, "write", file_path, addr_str])
+        code, _ = self.run_command([self.st_flash_cmd, "write", actual_file, addr_str])
         if code != 0:
+            if cleanup_temp:
+                os.remove(actual_file)
             return False
 
         # Reset the MCU
         code, _ = self.run_command([self.st_flash_cmd, "reset"])
         if code != 0:
             print("复位 MCU 失败。", file=sys.stderr)
+            if cleanup_temp:
+                os.remove(actual_file)
             return False
 
         if verify:
-            return self.verify(file_path, start_address)
-        return True
+            success = self.verify(actual_file, start_address)
+        else:
+            success = True
+
+        if cleanup_temp:
+            os.remove(actual_file)
+
+        return success
 
     def verify(self, file_path, start_address=0x08000000):
         """
@@ -177,20 +212,40 @@ class STLinkDownloader:
                 hash_sha256.update(chunk)
         return hash_sha256.hexdigest()
 
-    def reset(self):
+    def strip(self, elf_file_path):
         """
-        Reset the MCU.
+        Strip debug information from an ELF file.
+
+        Args:
+            elf_file_path (str): Path to the ELF file
 
         Returns:
-            bool: True if successful, False otherwise
+            str: Path to the stripped file or None if failed
         """
-        code, _ = self.run_command([self.st_flash_cmd, "reset"])
-        if code == 0:
-            print("已成功复位 MCU。")
-            return True
-        else:
-            print("复位 MCU 失败。", file=sys.stderr)
-            return False
+        if not os.path.exists(elf_file_path):
+            print(f"ELF文件不存在: {elf_file_path}", file=sys.stderr)
+            return None
+
+        # Find objcopy
+        objcopy_cmd = self._find_command("arm-none-eabi-objcopy")
+        if objcopy_cmd == "arm-none-eabi-objcopy":
+            objcopy_cmd = self._find_command("objcopy")
+            if objcopy_cmd == "objcopy":
+                print("找不到 objcopy 工具。请安装 binutils 或 arm-none-eabi-binutils。", file=sys.stderr)
+                return None
+
+        stripped_file = elf_file_path + ".stripped.elf"
+        code, _ = self.run_command([objcopy_cmd, "--strip-debug", elf_file_path, stripped_file])
+        if code != 0:
+            print("去除调试信息失败。", file=sys.stderr)
+            return None
+
+        if not os.path.exists(stripped_file):
+            print("输出文件未生成。", file=sys.stderr)
+            return None
+
+        print(f"已去除调试信息: {stripped_file}")
+        return stripped_file
 
 
 def main():
@@ -200,7 +255,7 @@ def main():
     Parses command-line arguments and executes the requested action.
     """
     parser = argparse.ArgumentParser(description=DESCRIPTION)
-    parser.add_argument("--action", required=True, choices=["probe", "info", "flash", "reset", "verify"])
+    parser.add_argument("--action", required=True, choices=["probe", "info", "flash", "reset", "verify", "strip"])
     parser.add_argument("--file", help="Firmware file path for flash/verify action")
     parser.add_argument("--address", type=lambda x: int(x, 0), default=0x08000000, help="Start address for flash/verify (default: 0x08000000)")
     parser.add_argument("--no-verify", action="store_true", help="Skip verification after flash")
@@ -239,6 +294,12 @@ def main():
     elif args.action == "reset":
         success = downloader.reset()
         return 0 if success else 1
+    elif args.action == "strip":
+        if not args.file:
+            print("strip 操作需要指定 --file", file=sys.stderr)
+            return 2
+        stripped_file = downloader.strip(args.file)
+        return 0 if stripped_file else 1
 
     return 1
 

@@ -1,0 +1,48 @@
+{
+  "id": "cmsis_dap",
+  "plugin_name": "CMSIS-DAP Downloader",
+  "command": "cmsis-dap",
+  "name": "CMSIS-DAP",
+  "component_type": "debugger",
+  "description": "CMSIS-DAP downloader component using pyOCD for ARM Cortex-M flashing.",
+  "python_module": "plugins/cmsis_dap/python/downloader.py",
+  "js_module": "plugins/cmsis_dap/js/component.json",
+  "metadata": {
+    "vendor_id": "0x0d28",
+    "product_ids": [],
+    "supported_platforms": ["linux", "windows"],
+    "flash_start_address": "0x08000000"
+  },
+  "actions": [
+    {
+      "name": "probe",
+      "description": "Probe the target MCU and gather info via CMSIS-DAP",
+      "args": ""
+    },
+    {
+      "name": "info",
+      "description": "Show CMSIS-DAP component status and metadata",
+      "args": ""
+    },
+    {
+      "name": "flash",
+      "description": "Flash a firmware file to MCU using CMSIS-DAP",
+      "args": "<file> [--address <addr>] [--no-verify]"
+    },
+    {
+      "name": "verify",
+      "description": "Verify the flashed firmware via CMSIS-DAP",
+      "args": "<file> [--address <addr>]"
+    },
+    {
+      "name": "reset",
+      "description": "Reset the MCU after flashing or manually",
+      "args": ""
+    },
+    {
+      "name": "strip",
+      "description": "Strip debug information from an ELF file",
+      "args": "<elf_file>"
+    }
+  ]
+}

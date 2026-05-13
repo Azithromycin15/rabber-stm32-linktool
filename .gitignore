@@ -7,7 +7,14 @@
 # Cargo metadata
 Cargo.lock
 
+# Python temporary files
+__pycache__/
+*.pyc
+
 # Editor temporary files
 *.swp
 *.swo
 *~
+
+# VS Code workspace settings
+.vscode/

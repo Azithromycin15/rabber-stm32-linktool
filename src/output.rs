@@ -6,9 +6,9 @@ use colored::*;
 use crate::stlink::{MCUInfo, STLinkInfo};
 
 /// 打印应用程序横幅
-pub fn print_banner() {
+pub fn print_banner(version: &str) {
     println!("{}", "╔══════════════════════════════════════════════════════╗".cyan());
-    println!("{}", "║           ST-Link V2 MCU 信息读取工具 v1.0           ║".cyan());
+    println!("{}", format!("║               Rabber烧录器 v{: <17}║", version).cyan());
     println!("{}", "╚══════════════════════════════════════════════════════╝".cyan());
 }
 

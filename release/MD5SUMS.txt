@@ -1,2 +1,0 @@
-7a5102a30dd56f7c45084e618ee0a84a  release/rabber-stm32-linktool-1.1.2-fix-linux
-203a0a64e712562e8d48e30d72739082  release/rabber-stm32-linktool-1.1.2-fix-win64.exe

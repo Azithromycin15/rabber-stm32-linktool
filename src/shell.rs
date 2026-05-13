@@ -6,7 +6,6 @@ use colored::*;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use crate::flash::{flash_firmware, reset_mcu};
 use crate::output::show_help;
 use crate::plugin::PluginManager;
 use crate::stlink::get_mcu_info_via_swd;
@@ -15,7 +14,7 @@ use crate::utils::find_plugin_loader_tool;
 /// 启动交互模式
 ///
 /// 初始化 rustyline 编辑器并进入命令循环，处理用户输入的命令。
-pub fn interactive_mode(plugin_manager: Option<PluginManager>) {
+pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloader: Option<String>) {
     let mut editor = Editor::<(), _>::new().expect("无法初始化交互编辑器");
     loop {
         match editor.readline("RabberShell /> ") {
@@ -23,7 +22,7 @@ pub fn interactive_mode(plugin_manager: Option<PluginManager>) {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
                     editor.add_history_entry(trimmed).ok();
-                    handle_command(trimmed, plugin_manager.as_ref());
+                    handle_command(trimmed, plugin_manager.as_ref(), default_downloader.as_deref());
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -44,7 +43,7 @@ pub fn interactive_mode(plugin_manager: Option<PluginManager>) {
 /// 处理命令
 ///
 /// 解析并执行用户输入的命令，支持内置命令和插件命令。
-fn handle_command(line: &str, plugin_manager: Option<&PluginManager>) {
+fn handle_command(line: &str, plugin_manager: Option<&PluginManager>, default_downloader: Option<&str>) {
     let mut parts = line.split_whitespace();
     if let Some(command) = parts.next() {
         match command {
@@ -73,13 +72,38 @@ fn handle_command(line: &str, plugin_manager: Option<&PluginManager>) {
             }
             "flash" => {
                 if let Some(file) = parts.next() {
-                    flash_firmware(file);
+                    if let Some(manager) = plugin_manager {
+                        let component = default_downloader
+                            .and_then(|id| manager.find_component(id))
+                            .or_else(|| manager.default_downloader_component());
+                        if let Some(component) = component {
+                            let args = vec![file.to_string()];
+                            execute_plugin_command(component, "flash", &args);
+                        } else {
+                            println!("{}", "未找到默认下载器组件。".red());
+                        }
+                    } else {
+                        println!("{}", "插件管理器未初始化。".red());
+                    }
                 } else {
                     println!("{}", "错误: flash 命令需要指定 ELF 或 HEX 文件路径。".red());
                     println!("用法: flash <file>");
                 }
             }
-            "reset" => reset_mcu(),
+            "reset" => {
+                if let Some(manager) = plugin_manager {
+                    let component = default_downloader
+                        .and_then(|id| manager.find_component(id))
+                        .or_else(|| manager.default_downloader_component());
+                    if let Some(component) = component {
+                        execute_plugin_command(component, "reset", &[]);
+                    } else {
+                        println!("{}", "未找到默认下载器组件。".red());
+                    }
+                } else {
+                    println!("{}", "插件管理器未初始化。".red());
+                }
+            }
             plugin_id => {
                 if let Some(manager) = plugin_manager {
                     if let Some(component) = manager.find_component(plugin_id) {

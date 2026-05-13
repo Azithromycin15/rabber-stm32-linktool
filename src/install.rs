@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::process::Command;
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum PackageManager {
     Apt,
     Pacman,
@@ -13,6 +14,7 @@ pub enum PackageManager {
     Unknown,
 }
 
+#[allow(dead_code)]
 impl PackageManager {
     pub fn name(&self) -> &'static str {
         match self {
@@ -98,6 +100,7 @@ pub fn install_stlink_tools() -> bool {
     }
 }
 
+#[allow(dead_code)]
 pub fn detect_package_manager() -> PackageManager {
     if find_executable("apt-get") {
         return PackageManager::Apt;
@@ -114,10 +117,12 @@ pub fn detect_package_manager() -> PackageManager {
     PackageManager::Unknown
 }
 
+#[allow(dead_code)]
 fn find_executable(name: &str) -> bool {
     which::which(name).is_ok()
 }
 
+#[allow(dead_code)]
 pub fn detect_linux_distro() -> Option<String> {
     let os_release = read_os_release()?;
     if let Some(pretty) = os_release.get("PRETTY_NAME") {
@@ -129,6 +134,7 @@ pub fn detect_linux_distro() -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn read_os_release() -> Option<HashMap<String, String>> {
     let content = fs::read_to_string("/etc/os-release").ok()?;
     let mut map = HashMap::new();
@@ -149,6 +155,7 @@ fn read_os_release() -> Option<HashMap<String, String>> {
     Some(map)
 }
 
+#[allow(dead_code)]
 fn is_root() -> bool {
     #[cfg(target_os = "linux")]
     {

@@ -5,9 +5,11 @@
 use colored::Colorize;
 use crate::plugin::PluginManager;
 use crate::utils::{execute_command, find_stlink_cli_tool};
+#[cfg(target_os = "linux")]
 use std::fs;
 use std::io::{self, Write};
 
+#[cfg(target_os = "linux")]
 /// USB 设备系统路径
 pub const SYS_USB_DEVICES: &str = "/sys/bus/usb/devices/";
 

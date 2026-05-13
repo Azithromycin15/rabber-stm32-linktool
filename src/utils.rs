@@ -3,9 +3,13 @@
 //! 这个模块提供各种工具函数，包括命令执行、工具查找和权限检查。
 
 use colored::Colorize;
+use crate::logger::{info as log_info, warn as log_warn};
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use which::which;
 
 /// 命令执行结果结构体
@@ -82,7 +86,7 @@ pub fn find_tool(name: &str, possible_paths: &[&str]) -> Option<String> {
 
 /// 查找 ST-Link CLI 工具
 ///
-/// 查找 st-info 命令的路径。
+/// Linux 上查找 st-info；Windows 上查找 ST-LINK_CLI.exe。
 pub fn find_stlink_cli_tool() -> Option<String> {
     #[cfg(target_os = "linux")]
     let possible_paths = [
@@ -98,12 +102,19 @@ pub fn find_stlink_cli_tool() -> Option<String> {
         "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
         "ST-LINK_CLI.exe",
     ];
-    find_tool("st-info", &possible_paths)
+    #[cfg(target_os = "linux")]
+    {
+        find_tool("st-info", &possible_paths)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        find_tool("ST-LINK_CLI.exe", &possible_paths)
+    }
 }
 
 /// 查找 ST-Link 编程工具
 ///
-/// 查找 st-flash 命令的路径。
+/// Linux 上查找 st-flash；Windows 上查找 ST-LINK_CLI.exe。
 pub fn find_stlink_programmer_tool() -> Option<String> {
     #[cfg(target_os = "linux")]
     let possible_paths = [
@@ -119,7 +130,14 @@ pub fn find_stlink_programmer_tool() -> Option<String> {
         "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
         "ST-LINK_CLI.exe",
     ];
-    find_tool("st-flash", &possible_paths)
+    #[cfg(target_os = "linux")]
+    {
+        find_tool("st-flash", &possible_paths)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        find_tool("ST-LINK_CLI.exe", &possible_paths)
+    }
 }
 
 /// 查找插件加载器工具
@@ -163,6 +181,199 @@ pub fn plugin_loader_dir() -> PathBuf {
         return root.join("plugin-loader");
     }
     PathBuf::from("plugin-loader")
+}
+
+/// 获取 Cargo.toml 里的包版本
+pub fn cargo_package_version() -> Option<String> {
+    let content = fs::read_to_string("Cargo.toml").ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("version") {
+            if let Some(start) = trimmed.find('"') {
+                if let Some(end) = trimmed[start + 1..].find('"') {
+                    return Some(trimmed[start + 1..start + 1 + end].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 检查 OpenOCD 是否已安装
+pub fn check_openocd_installed() -> bool {
+    let possible_paths = [
+        "openocd",
+        "openocd.exe",
+        "/usr/bin/openocd",
+        "/usr/local/bin/openocd",
+        "C:\\Program Files (x86)\\OpenOCD\\bin\\openocd.exe",
+        "C:\\Program Files\\OpenOCD\\bin\\openocd.exe",
+    ];
+    find_tool("openocd", &possible_paths).is_some()
+}
+
+/// 检查 Go 是否已安装
+pub fn check_go_installed() -> bool {
+    let possible_paths = ["go", "go.exe"];
+    find_tool("go", &possible_paths).is_some()
+}
+
+/// 检查 git 是否已安装
+pub fn check_git_installed() -> bool {
+    let possible_paths = ["git", "git.exe"];
+    find_tool("git", &possible_paths).is_some()
+}
+
+/// 判断当前 IP 是否为中国大陆 IP
+pub fn is_china_ip() -> Option<bool> {
+    if let Some(curl) = find_tool("curl", &["curl", "curl.exe"]) {
+        let result = Command::new(curl)
+            .args(["-s", "https://ipinfo.io/country"]).output();
+        if let Ok(output) = result {
+            if output.status.success() {
+                let country = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return Some(country.eq_ignore_ascii_case("CN"));
+            }
+        }
+    }
+    if let Some(wget) = find_tool("wget", &["wget", "wget.exe"]) {
+        let result = Command::new(wget)
+            .args(["-qO-", "https://ipinfo.io/country"]).output();
+        if let Ok(output) = result {
+            if output.status.success() {
+                let country = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return Some(country.eq_ignore_ascii_case("CN"));
+            }
+        }
+    }
+    None
+}
+
+const PLUGIN_LOADER_GITEE_REPO: &str = "https://gitee.com/azithromycin/rabber-stm32-linktool-plugin-loader.git";
+const PLUGIN_LOADER_GITHUB_REPO: &str = "https://github.com/azithromycin/rabber-stm32-linktool-plugin-loader.git";
+
+fn select_plugin_loader_repo() -> &'static str {
+    match is_china_ip() {
+        Some(true) => PLUGIN_LOADER_GITEE_REPO,
+        _ => PLUGIN_LOADER_GITHUB_REPO,
+    }
+}
+
+/// 下载 plugin-loader 源码并准备编译环境
+pub fn ensure_plugin_loader_source() -> bool {
+    let source_dir = plugin_loader_dir();
+    let main_go = source_dir.join("main.go");
+    if main_go.is_file() {
+        return true;
+    }
+
+    if source_dir.exists() {
+        if let Ok(mut entries) = fs::read_dir(&source_dir) {
+            if entries.next().is_some() && !main_go.is_file() {
+                // 目录存在但未找到源码，先保留目录，不覆盖用户内容
+                return false;
+            }
+        }
+    }
+
+    if source_dir.exists() {
+        let _ = fs::remove_dir_all(&source_dir);
+    }
+
+    let repo = select_plugin_loader_repo();
+    if !check_git_installed() {
+        return false;
+    }
+
+    if let Some(git) = find_tool("git", &["git", "git.exe"]) {
+        if let Some(parent) = source_dir.parent() {
+            let clone_status = Command::new(git)
+                .args(["clone", "--depth", "1", repo, source_dir.to_str().unwrap_or("plugin-loader")])
+                .current_dir(parent)
+                .status();
+            return clone_status.map(|s| s.success()).unwrap_or(false);
+        }
+    }
+    false
+}
+
+/// 创建 Go 安装脚本，提供安装方案给用户。
+pub fn create_go_install_script() -> Option<PathBuf> {
+    let cwd = env::current_dir().ok()?;
+    let script_path = if cfg!(target_os = "windows") {
+        cwd.join("install_go.ps1")
+    } else {
+        cwd.join("install_go.sh")
+    };
+
+    let content = if cfg!(target_os = "windows") {
+        r#"Write-Host '安装 Go 运行时环境'
+if (Get-Command winget -ErrorAction SilentlyContinue) {
+    winget install --id GoLang.Go -e
+} else {
+    Write-Host '请手动从 https://go.dev/dl/ 下载并安装 Go。'
+}
+"#
+    } else {
+        r#"#!/bin/sh
+set -e
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update && sudo apt-get install -y golang-go
+elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y golang
+elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -S --noconfirm go
+elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper install -y golang
+else
+    echo '请手动从 https://go.dev/dl/ 下载并安装 Go。'
+fi
+"#
+    };
+
+    if fs::write(&script_path, content).is_ok() {
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755));
+        }
+        Some(script_path)
+    } else {
+        None
+    }
+}
+
+/// 准备运行时环境，尝试自动下载 plugin-loader 源码并创建 Go 安装脚本。
+pub fn prepare_runtime_environment() -> bool {
+    let mut ok = true;
+    let go_installed = check_go_installed();
+    let loader_source_ready = ensure_plugin_loader_source();
+
+    if !go_installed {
+        log_warn("Go 编译环境未检测到。");
+        if let Some(script) = create_go_install_script() {
+            log_info(&format!("Go 安装脚本已创建: {}", script.display()));
+            println!("{}", format!("[!] Go 安装脚本已创建: {}", script.display()).yellow());
+        } else {
+            println!("{}", "[!] 无法创建 Go 安装脚本，请手动安装 Go。".yellow());
+        }
+        ok = false;
+    }
+
+    if !loader_source_ready {
+        log_warn("plugin-loader 源码环境未准备好。");
+        if let Some(repo) = Some(select_plugin_loader_repo()) {
+            println!("{}", format!("[!] plugin-loader 源码未找到，已尝试从 {} 获取。", repo).yellow());
+        }
+        ok = false;
+    }
+
+    if go_installed && loader_source_ready {
+        if !ensure_plugin_loader_binary() {
+            log_warn("plugin-loader 二进制构建失败。");
+            ok = false;
+        }
+    }
+    ok
 }
 
 pub fn find_plugin_loader_tool() -> Option<String> {

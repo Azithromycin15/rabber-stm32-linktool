@@ -96,6 +96,20 @@ func pluginRoot() string {
     return "plugins"
 }
 
+func pluginRootFromManifest(manifestPath string) string {
+    abs, err := filepath.Abs(manifestPath)
+    if err == nil {
+        parent := filepath.Dir(abs)
+        if filepath.Base(parent) == "plugins" && dirExists(parent) {
+            return filepath.Dir(parent)
+        }
+        if dirExists(parent) {
+            return parent
+        }
+    }
+    return pluginRoot()
+}
+
 func saveManifest(path string, manifest *PluginManifest) error {
     if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
         return err
@@ -145,8 +159,12 @@ func listComponents(manifest *PluginManifest) {
 }
 
 // executePython runs the Python script for the specified component and action.
-func executePython(component *ComponentInfo, action string, filePath string, address string, noVerify bool) error {
+func executePython(component *ComponentInfo, action string, filePath string, address string, noVerify bool, pluginRoot string) error {
     scriptPath := filepath.Clean(component.PythonModule)
+    if !filepath.IsAbs(scriptPath) {
+        // If relative, treat it as relative to the repository root or plugin root.
+        scriptPath = filepath.Join(pluginRoot, scriptPath)
+    }
     args := []string{scriptPath, "--action", action}
     if filePath != "" {
         args = append(args, "--file", filePath)
@@ -174,12 +192,13 @@ func main() {
     noVerify := flag.Bool("no-verify", false, "Skip verification after flash")
     flag.Parse()
 
+    pluginRootPath := pluginRootFromManifest(*manifestPath)
     manifest, err := loadManifest(*manifestPath)
     if err != nil {
-        pluginRoot := pluginRoot()
+        pluginRootPath = pluginRoot()
         fmt.Fprintf(os.Stderr, "Warning: failed to load plugin manifest: %v\n", err)
-        fmt.Fprintf(os.Stderr, "Attempting to scan plugins from %s...\n", pluginRoot)
-        manifest, err = scanPlugins(pluginRoot)
+        fmt.Fprintf(os.Stderr, "Attempting to scan plugins from %s...\n", pluginRootPath)
+        manifest, err = scanPlugins(pluginRootPath)
         if err != nil {
             fmt.Fprintf(os.Stderr, "Failed to discover plugin components: %v\n", err)
             os.Exit(1)
@@ -208,7 +227,7 @@ func main() {
     }
 
     fmt.Printf("Loading component '%s' (%s)\n", component.Name, component.ID)
-    err = executePython(component, *action, *filePath, *address, *noVerify)
+    err = executePython(component, *action, *filePath, *address, *noVerify, pluginRootPath)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Component execution failed: %v\n", err)
         os.Exit(1)
