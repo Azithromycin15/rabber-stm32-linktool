@@ -64,6 +64,7 @@ pub fn find_stlink_cli_tool() -> Option<String> {
     find_tool(name, &paths)
 }
 
+#[allow(dead_code)]
 pub fn find_stlink_programmer_tool() -> Option<String> {
     let (name, paths) = if cfg!(target_os = "windows") {
         ("ST-LINK_CLI.exe", STLINK_WIN_PATHS)
@@ -84,6 +85,7 @@ const STLINK_NIX_CLI_PATHS: &[&str] = &[
     "/usr/bin/stlink-info", "/usr/local/bin/stlink-info",
 ];
 
+#[allow(dead_code)]
 const STLINK_NIX_FLASH_PATHS: &[&str] = &[
     "/usr/bin/st-flash", "/usr/local/bin/st-flash", "/bin/st-flash",
     "/usr/bin/stlink-flash", "/usr/local/bin/stlink-flash",
