@@ -1,189 +1,82 @@
+//! # 安装模块
+//!
+//! ST-Link 工具链安装与包管理器检测。
+
 use colored::Colorize;
-use std::collections::HashMap;
-use std::fs;
 use std::io::{self, Write};
-use std::process::Command;
 
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-pub enum PackageManager {
-    Apt,
-    Pacman,
-    Dnf,
-    Zypper,
-    Unknown,
-}
-
-#[allow(dead_code)]
-impl PackageManager {
-    pub fn name(&self) -> &'static str {
-        match self {
-            PackageManager::Apt => "apt-get",
-            PackageManager::Pacman => "pacman",
-            PackageManager::Dnf => "dnf",
-            PackageManager::Zypper => "zypper",
-            PackageManager::Unknown => "unknown",
-        }
-    }
-}
-
+/// 询问用户是否安装 stlink-tools
 pub fn prompt_install_stlink_tools() -> bool {
-    print!("{} ", "是否现在尝试安装 stlink-tools 依赖包？[Y/n]".yellow());
+    print!("{} ", "是否现在尝试安装 stlink-tools？[Y/n]".yellow());
     io::stdout().flush().ok();
-
     let mut answer = String::new();
-    if io::stdin().read_line(&mut answer).is_err() {
-        return false;
-    }
-
+    if io::stdin().read_line(&mut answer).is_err() { return false; }
     matches!(answer.trim().to_lowercase().as_str(), "" | "y" | "yes")
 }
 
+/// 尝试自动安装 stlink-tools
 pub fn install_stlink_tools() -> bool {
     #[cfg(target_os = "linux")]
-    {
-        let pm = detect_package_manager();
-        let (command, args) = match pm {
-            PackageManager::Apt => ("apt-get", vec!["install", "-y", "stlink-tools"]),
-            PackageManager::Pacman => ("pacman", vec!["-S", "--noconfirm", "stlink"]),
-            PackageManager::Dnf => ("dnf", vec!["install", "-y", "stlink"]),
-            PackageManager::Zypper => ("zypper", vec!["install", "-y", "stlink"]),
-            PackageManager::Unknown => {
-                println!("{}", "无法识别当前 Linux 发行版或包管理器。".red());
-                return false;
-            }
-        };
+    return linux_install();
 
-        let distro = detect_linux_distro().unwrap_or_else(|| "未知发行版".to_string());
-        println!(
-            "{}",
-            format!(
-                "当前操作系统: {}，准备使用 {} 安装 stlink 工具...",
-                distro,
-                pm.name()
-            )
-            .cyan()
-        );
-
-        let mut install_cmd = if is_root() {
-            Command::new(command)
-        } else {
-            let mut cmd = Command::new("sudo");
-            cmd.arg(command);
-            cmd
-        };
-        let install_cmd = install_cmd.args(args.iter());
-
-        match install_cmd.status() {
-            Ok(status) if status.success() => {
-                println!("{}", "stlink-tools 安装成功。".green());
-                true
-            }
-            Ok(status) => {
-                println!("{}", format!("安装失败，退出码 {}。", status.code().unwrap_or(-1)).red());
-                false
-            }
-            Err(err) => {
-                println!("{}", format!("无法启动安装命令: {}", err).red());
-                false
-            }
-        }
-    }
     #[cfg(target_os = "windows")]
     {
-        println!("{}", "在 Windows 上，请手动下载并安装 ST-Link Utility:".cyan());
-        println!("{}", "下载地址: https://www.st.com/en/development-tools/stsw-link004.html".yellow());
-        println!("{}", "安装后，请确保 ST-LINK_CLI.exe 在 PATH 中或位于默认安装路径。".yellow());
-        println!("{}", "或者使用 OpenOCD 作为替代:".cyan());
-        println!("{}", "下载地址: https://openocd.org/".yellow());
-        false // 返回 false，因为无法自动安装
+        println!("{}", "Windows 请手动安装 ST-Link Utility:".cyan());
+        println!("  https://www.st.com/en/development-tools/stsw-link004.html");
+        println!("或使用 OpenOCD: https://openocd.org/");
+        false
     }
-    #[cfg(target_os = "macos")]{
-        println!("{}", "在 macOS 上，请使用 Homebrew 安装 stlink:".cyan());
-        println!("{}", "命令: brew install stlink".yellow());
-        false // 返回 false，因为无法自动安装
-    }
-}
 
-#[allow(dead_code)]
-pub fn detect_package_manager() -> PackageManager {
-    if find_executable("apt-get") {
-        return PackageManager::Apt;
-    }
-    if find_executable("pacman") {
-        return PackageManager::Pacman;
-    }
-    if find_executable("dnf") {
-        return PackageManager::Dnf;
-    }
-    if find_executable("zypper") {
-        return PackageManager::Zypper;
-    }
-    PackageManager::Unknown
-}
-
-#[allow(dead_code)]
-fn find_executable(name: &str) -> bool {
-    which::which(name).is_ok()
-}
-
-#[allow(dead_code)]
-pub fn detect_linux_distro() -> Option<String> {
-    let os_release = read_os_release()?;
-    if let Some(pretty) = os_release.get("PRETTY_NAME") {
-        return Some(pretty.clone());
-    }
-    if let Some(name) = os_release.get("NAME") {
-        return Some(name.clone());
-    }
-    None
-}
-
-#[allow(dead_code)]
-fn read_os_release() -> Option<HashMap<String, String>> {
-    let content = fs::read_to_string("/etc/os-release").ok()?;
-    let mut map = HashMap::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some(idx) = line.find('=') {
-            let key = &line[..idx];
-            let mut value = line[idx + 1..].trim().to_string();
-            if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
-                value = value[1..value.len() - 1].to_string();
-            }
-            map.insert(key.to_string(), value);
-        }
-    }
-    Some(map)
-}
-
-#[allow(dead_code)]
-fn is_root() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        match Command::new("id").arg("-u").output() {
-            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
-            _ => false,
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // 在 Windows 上，检查是否以管理员身份运行
-        if let Ok(output) = Command::new("net").args(&["session"]).output() {
-            output.status.success()
-        } else {
-            false
-        }
-    }
     #[cfg(target_os = "macos")]
     {
-        // 在 macOS 上，检查是否以 root 身份运行
-        match Command::new("id").arg("-u").output() {
-            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
-            _ => false,
+        println!("{}", "macOS 请使用 Homebrew:".cyan());
+        println!("  brew install stlink");
+        false
+    }
+}
+
+// ── Linux 包管理器安装 ──
+
+#[cfg(target_os = "linux")]
+fn linux_install() -> bool {
+    use std::process::Command;
+
+    #[derive(Debug, Clone, Copy)]
+    enum Pkg { Apt, Pacman, Dnf, Zypper }
+
+    let (pkg, cmd, args): (Pkg, &str, Vec<&str>) = {
+        if which::which("apt-get").is_ok() {
+            (Pkg::Apt, "apt-get", vec!["install", "-y", "stlink-tools"])
+        } else if which::which("pacman").is_ok() {
+            (Pkg::Pacman, "pacman", vec!["-S", "--noconfirm", "stlink"])
+        } else if which::which("dnf").is_ok() {
+            (Pkg::Dnf, "dnf", vec!["install", "-y", "stlink"])
+        } else if which::which("zypper").is_ok() {
+            (Pkg::Zypper, "zypper", vec!["install", "-y", "stlink"])
+        } else {
+            println!("{}", "无法识别包管理器。".red());
+            return false;
         }
+    };
+
+    let distro = std::fs::read_to_string("/etc/os-release").ok()
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")
+            .map(|v| v.trim_matches('"').to_string())))
+        .unwrap_or_else(|| "未知发行版".into());
+
+    let pkg_name = match pkg { Pkg::Apt => "apt", Pkg::Pacman => "pacman", Pkg::Dnf => "dnf", Pkg::Zypper => "zypper" };
+    println!("{}", format!("系统: {}, 使用 {} 安装 stlink...", distro, pkg_name).cyan());
+
+    let mut install = if crate::utils::is_root() {
+        Command::new(cmd)
+    } else {
+        let mut c = Command::new("sudo"); c.arg(cmd); c
+    };
+    install.args(&args);
+
+    match install.status() {
+        Ok(s) if s.success() => { println!("{}", "安装成功".green()); true }
+        Ok(s) => { println!("{}", format!("安装失败, exit: {}", s.code().unwrap_or(-1)).red()); false }
+        Err(e) => { println!("{}", format!("无法启动安装: {}", e).red()); false }
     }
 }

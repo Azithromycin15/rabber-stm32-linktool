@@ -1,63 +1,50 @@
-# ST-Link V2 Plugin Component
+# 🎛️ ST-Link V2 插件
 
-## 组件概述
+ST-Link V2 调试器插件，用于 STM32 的 SWD 烧录与信息查询。
 
-这个组件负责 ST-Link V2 设备的连接与烧录业务逻辑。它包含一个 Python 实现和一个 JS 元数据描述版本。
+## 📂 目录结构
 
-## 目录结构
+- `python/downloader.py` — Python 实现（调用 `st-info`/`st-flash`）
+- `python/api_example.py` — Python API 使用示例
+- `js/component.json` — 组件元数据
 
-- `python/downloader.py` - Python 组件实现，执行 `st-info` / `st-flash` 操作。
-- `python/api_example.py` - Python API 使用示例。
-- `js/component.js` - JS 组件版本，导出组件元数据信息。
-- `README.md` - 本组件详细说明。
+## ⚡ 支持的操作
 
-## 支持操作
+| 操作 | 说明 |
+|------|------|
+| `probe` | 探测 ST-Link V2 设备 |
+| `info` | 查询 MCU / ST-Link 信息 |
+| `flash` | 烧录固件（支持自定义地址和验证） |
+| `verify` | 验证已烧录的固件 |
+| `reset` | 复位 MCU |
 
-- `probe` - 探测 ST-Link V2 设备
-- `info` - 查询 MCU / ST-Link 信息
-- `flash` - 烧录固件并复位 MCU（支持自定义起始地址和验证）
-- `verify` - 验证已烧录的固件
-- `reset` - 复位 MCU
-
-## 命令行使用
+## 🚀 使用方式
 
 ```bash
-python3 plugins/stlink_v2/python/downloader.py --action probe
-python3 plugins/stlink_v2/python/downloader.py --action info
+# 在交互 Shell 中
+stlink_v2 flash firmware.bin
+stlink_v2 info
+stlink_v2 reset
+
+# 直接调用 Python
 python3 plugins/stlink_v2/python/downloader.py --action flash --file firmware.hex --address 0x08000000
-python3 plugins/stlink_v2/python/downloader.py --action flash --file firmware.bin --address 0x08000000 --no-verify
-python3 plugins/stlink_v2/python/downloader.py --action verify --file firmware.hex --address 0x08000000
-python3 plugins/stlink_v2/python/downloader.py --action reset
+python3 plugins/stlink_v2/python/downloader.py --action probe
 ```
 
-## API 使用
+## 🐍 Python API
 
 ```python
-from downloader import create_downloader, api_probe, api_flash, api_verify, api_reset
+from downloader import create_downloader, api_probe, api_flash, api_reset
 
-# 创建下载器实例
 downloader = create_downloader()
-
-# 探测MCU
 info = api_probe(downloader)
-if info:
-    print("MCU Info:", info)
-
-# 烧录固件（起始地址0x08000000，带验证）
 success = api_flash(downloader, "firmware.bin", start_address=0x08000000, verify=True)
-
-# 验证固件
-success = api_verify(downloader, "firmware.bin", start_address=0x08000000)
-
-# 复位MCU
-success = api_reset(downloader)
+api_reset(downloader)
 ```
 
-运行API示例：
-```bash
-python3 plugins/stlink_v2/python/api_example.py
-```
+## 📋 元数据
 
-## 组件元数据
-
-该组件元数据由 `plugins/manifest.yaml` 和 `plugins/stlink_v2/js/component.js` 共同描述，定义了组件 ID、名称、支持平台、设备 ID、以及 Python 模块路径。
+- **VID**: `0x0483`
+- **PID**: `0x3748`, `0x374B`
+- **Flash 起始地址**: `0x08000000`
+- **支持平台**: Linux、Windows

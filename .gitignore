@@ -1,31 +1,32 @@
-# Rust build directories
+# ── Rust 构建产物 ──
 /target
+Cargo.lock
 
-# Go plugin loader binaries
+# ── Go 插件加载器二进制 ──
 /plugin-loader/plugin-loader
 /plugin-loader/plugin-loader.exe
 
-# Release artifacts
+# ── 发布产物 ──
 /release
 
-# Runtime logs
+# ── 运行时日志 ──
 /logs
 
-# Cargo metadata
-Cargo.lock
-
-# Python temporary files
-
-# IDE directories
-.idea
-.vscode
-__pycache__/
-*.pyc
-
-# Editor temporary files
+# ── IDE 配置 ──
+.idea/
+.vscode/
 *.swp
 *.swo
 *~
 
-# VS Code workspace settings
-.vscode/
+# ── DeepSeek TUI 配置 ──
+.deepseek/
+
+# ── Python 临时文件 ──
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ── macOS 系统文件 ──
+.DS_Store
