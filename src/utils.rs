@@ -295,6 +295,7 @@ fn select_plugin_loader_repo() -> &'static str {
 }
 
 /// 下载并解压ZIP文件到指定目录
+#[cfg(not(target_os = "macos"))]
 fn download_file(url: &str, dest: &Path) -> bool {
     let response = match blocking::get(url) {
         Ok(r) => r,
@@ -376,16 +377,38 @@ pub fn ensure_plugin_loader_source() -> bool {
         return true;
     }
 
-    if let Some(parent) = plugin_path.parent() {
-        let _ = fs::create_dir_all(parent);
+    // macOS 没有预编译二进制，需要本地 Go 编译
+    #[cfg(target_os = "macos")]
+    {
+        println!("{}", "[!] macOS 需要本地编译 plugin-loader，请确保 Go 已安装。".yellow());
+        return false;
     }
 
-    let url = if cfg!(target_os = "windows") {
-        "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader.exe"
-    } else {
-        "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader"
-    };
-    download_file(url, &plugin_path)
+    // Linux / Windows：从 OBS 下载预编译二进制
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(parent) = plugin_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let url = if cfg!(target_os = "windows") {
+            "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader.exe"
+        } else {
+            "https://cloud-sumi-use.obs.cn-east-3.myhuaweicloud.com/plugin-loader"
+        };
+
+        if !download_file(url, &plugin_path) {
+            return false;
+        }
+
+        // 在 Linux 上显式设置可执行权限，避免 ARMHF 等平台出现 Permission Denied
+        #[cfg(unix)]
+        {
+            let _ = fs::set_permissions(&plugin_path, fs::Permissions::from_mode(0o755));
+        }
+
+        true
+    }
 }
 
 pub fn ensure_plugins_downloaded() -> bool {
@@ -428,6 +451,15 @@ if (Get-Command winget -ErrorAction SilentlyContinue) {
 } else {
     Write-Host '请手动从 https://go.dev/dl/ 下载并安装 Go。'
 }
+"#
+    } else if cfg!(target_os = "macos") {
+        r#"#!/bin/sh
+set -e
+if command -v brew >/dev/null 2>&1; then
+    brew install go
+else
+    echo '请安装 Homebrew (https://brew.sh) 后重试，或手动从 https://go.dev/dl/ 下载 Go。'
+fi
 "#
     } else {
         r#"#!/bin/sh
@@ -489,7 +521,9 @@ pub fn prepare_runtime_environment() -> bool {
         ok = false;
     }
 
-    if go_installed && loader_source_ready {
+    // 只要 Go 可用就尝试构建 plugin-loader（macOS 无预编译二进制，强制走此路径；
+    // Linux 上下载失败时也可作为 fallback）
+    if go_installed {
         if !ensure_plugin_loader_binary() {
             log_warn("plugin-loader 二进制构建失败。");
             ok = false;
@@ -550,10 +584,22 @@ pub fn ensure_plugin_loader_binary() -> bool {
         .current_dir(&loader_dir)
         .status();
 
-    match build_result {
+    let build_ok = match build_result {
         Ok(status) if status.success() => output_file.is_file(),
         _ => false,
+    };
+
+    if !build_ok {
+        return false;
     }
+
+    // 在某些文件系统（tmpfs、网络挂载等）下 go build 输出的二进制可能缺少可执行位
+    #[cfg(unix)]
+    {
+        let _ = fs::set_permissions(&output_file, fs::Permissions::from_mode(0o755));
+    }
+
+    true
 }
 
 /// 打印当前环境配置
