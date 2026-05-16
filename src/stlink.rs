@@ -103,6 +103,13 @@ pub fn detect_stlink_by_usb() -> bool {
         );
         output.status == 0 && !output.stdout.trim().is_empty()
     }
+    #[cfg(target_os = "macos")]
+    {
+        // 在 macOS 上，使用 system_profiler 检查 USB 设备
+        use crate::utils::execute_command;
+        let output = execute_command("system_profiler", &["SPUSBDataType"]);
+        output.status == 0 && output.stdout.contains("STMicroelectronics")
+    }
 }
 
 /// 获取 ST-Link 设备信息

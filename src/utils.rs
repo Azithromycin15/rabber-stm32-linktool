@@ -45,6 +45,14 @@ pub fn is_root() -> bool {
             false
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        // 在 macOS 上，检查是否以 root 身份运行
+        match Command::new("id").arg("-u").output() {
+            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
+            _ => false,
+        }
+    }
 }
 
 /// 执行外部命令
@@ -104,6 +112,14 @@ pub fn find_stlink_cli_tool() -> Option<String> {
         "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
         "ST-LINK_CLI.exe",
     ];
+    #[cfg(target_os = "macos")]
+    let possible_paths = [
+        "/usr/local/bin/st-info",
+        "/usr/bin/st-info",
+        "/bin/st-info",
+        "/usr/local/bin/stlink-info",
+        "/usr/bin/stlink-info",
+    ];
     #[cfg(target_os = "linux")]
     {
         find_tool("st-info", &possible_paths)
@@ -111,6 +127,10 @@ pub fn find_stlink_cli_tool() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         find_tool("ST-LINK_CLI.exe", &possible_paths)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        find_tool("st-info", &possible_paths)
     }
 }
 
@@ -132,6 +152,14 @@ pub fn find_stlink_programmer_tool() -> Option<String> {
         "C:\\Program Files\\STMicroelectronics\\STM32 ST-LINK Utility\\ST-LINK_CLI.exe",
         "ST-LINK_CLI.exe",
     ];
+    #[cfg(target_os = "macos")]
+    let possible_paths = [
+        "/usr/local/bin/st-flash",
+        "/usr/bin/st-flash",
+        "/bin/st-flash",
+        "/usr/local/bin/stlink-flash",
+        "/usr/bin/stlink-flash",
+    ];
     #[cfg(target_os = "linux")]
     {
         find_tool("st-flash", &possible_paths)
@@ -139,6 +167,10 @@ pub fn find_stlink_programmer_tool() -> Option<String> {
     #[cfg(target_os = "windows")]
     {
         find_tool("ST-LINK_CLI.exe", &possible_paths)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        find_tool("st-flash", &possible_paths)
     }
 }
 

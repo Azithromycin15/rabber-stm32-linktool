@@ -98,6 +98,11 @@ pub fn install_stlink_tools() -> bool {
         println!("{}", "下载地址: https://openocd.org/".yellow());
         false // 返回 false，因为无法自动安装
     }
+    #[cfg(target_os = "macos")]{
+        println!("{}", "在 macOS 上，请使用 Homebrew 安装 stlink:".cyan());
+        println!("{}", "命令: brew install stlink".yellow());
+        false // 返回 false，因为无法自动安装
+    }
 }
 
 #[allow(dead_code)]
@@ -171,6 +176,14 @@ fn is_root() -> bool {
             output.status.success()
         } else {
             false
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // 在 macOS 上，检查是否以 root 身份运行
+        match Command::new("id").arg("-u").output() {
+            Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout).trim() == "0",
+            _ => false,
         }
     }
 }
