@@ -158,7 +158,7 @@ pub fn get_stlink_info() -> STLinkInfo {
         }
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
-            let _ = &cli_path;
+            let _ = cli_path;
         }
     }
     if let Some((vendor_id, product_ids)) = default_stlink_metadata() {
