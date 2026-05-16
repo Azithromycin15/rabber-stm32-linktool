@@ -3,26 +3,53 @@
 //! 这个模块实现了一个交互式的命令行界面，支持内置命令和插件命令的执行。
 
 use colored::*;
+use std::env;
+use std::path::PathBuf;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use crate::output::show_help;
 use crate::plugin::PluginManager;
 use crate::stlink::get_mcu_info_via_swd;
-use crate::utils::find_plugin_loader_tool;
+use crate::utils::{find_plugin_loader_tool, manifest_path};
 
 /// 启动交互模式
 ///
 /// 初始化 rustyline 编辑器并进入命令循环，处理用户输入的命令。
 pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloader: Option<String>) {
     let mut editor = Editor::<(), _>::new().expect("无法初始化交互编辑器");
+
+    // 跟踪当前工作目录
+    let mut current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+
     loop {
-        match editor.readline("RabberShell /> ") {
+        // 动态生成提示符
+        let prompt = format!("rabber:{}> ", current_dir.display());
+        match editor.readline(&prompt) {
             Ok(line) => {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
                     editor.add_history_entry(trimmed).ok();
-                    handle_command(trimmed, plugin_manager.as_ref(), default_downloader.as_deref());
+                    let result = handle_command(
+                        trimmed,
+                        plugin_manager.as_ref(),
+                        default_downloader.as_deref(),
+                        &mut current_dir,
+                    );
+                    // 如果是 cd 命令且成功，更新提示符已隐式反映新路径
+                    if let Some(new_dir) = result {
+                        // 保存当前目录为 OLDPWD
+                        let _ = env::set_var("OLDPWD", current_dir.to_string_lossy().as_ref());
+                        match env::set_current_dir(&new_dir) {
+                            Ok(()) => {
+                                current_dir = new_dir;
+                                crate::logger::info(&format!("切换工作目录: {}", current_dir.display()));
+                            }
+                            Err(e) => {
+                                println!("{}", format!("切换目录失败: {}", e).red());
+                            }
+                        }
+                    }
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -43,8 +70,14 @@ pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloade
 /// 处理命令
 ///
 /// 解析并执行用户输入的命令，支持内置命令和插件命令。
-fn handle_command(line: &str, plugin_manager: Option<&PluginManager>, default_downloader: Option<&str>) {
+fn handle_command(
+    line: &str,
+    plugin_manager: Option<&PluginManager>,
+    default_downloader: Option<&str>,
+    current_dir: &mut PathBuf,
+) -> Option<PathBuf> {
     let mut parts = line.split_whitespace();
+    let mut new_dir: Option<PathBuf> = None;
     if let Some(command) = parts.next() {
         match command {
             "exit" | "quit" => {
@@ -60,6 +93,56 @@ fn handle_command(line: &str, plugin_manager: Option<&PluginManager>, default_do
                     }
                 } else {
                     show_help();
+                }
+            }
+            "pwd" => {
+                println!("{}", current_dir.display());
+            }
+            "cd" => {
+                if let Some(target) = parts.next() {
+                    let target_path = if target == "~" {
+                        match env::var("HOME") {
+                            Ok(home) => PathBuf::from(home),
+                            Err(_) => {
+                                println!("{}", "无法获取 HOME 目录。".red());
+                                return None;
+                            }
+                        }
+                    } else if target == "-" {
+                        match env::var("OLDPWD") {
+                            Ok(old) => PathBuf::from(old),
+                            Err(_) => {
+                                println!("{}", "没有上一个工作目录。".red());
+                                return None;
+                            }
+                        }
+                    } else if target == ".." || target.starts_with("../") || target.starts_with("./") || target.starts_with('/') {
+                        PathBuf::from(target)
+                    } else {
+                        current_dir.join(target)
+                    };
+
+                    // 规范化路径
+                    let canonical = match target_path.canonicalize() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            println!("{}", format!("目录不存在: {}", target_path.display()).red());
+                            return None;
+                        }
+                    };
+                    new_dir = Some(canonical);
+                } else {
+                    // cd 无参数 → 回到 HOME（原生 shell 行为）
+                    match env::var("HOME") {
+                        Ok(home) => {
+                            let home_path = PathBuf::from(&home);
+                            match home_path.canonicalize() {
+                                Ok(p) => new_dir = Some(p),
+                                Err(_) => println!("{}", "无法访问 HOME 目录。".red()),
+                            }
+                        }
+                        Err(_) => println!("{}", "无法获取 HOME 目录，用法: cd <目录>".yellow()),
+                    }
                 }
             }
             "info" => {
@@ -110,12 +193,12 @@ fn handle_command(line: &str, plugin_manager: Option<&PluginManager>, default_do
                         if let Some(action) = parts.next() {
                             if action == "help" {
                                 manager.print_component_help(plugin_id);
-                                return;
+                                return None;
                             }
                             if !manager.has_action(plugin_id, action) {
                                 println!("{}", format!("插件 '{}' 不支持命令 '{}'。", plugin_id, action).red());
                                 manager.print_component_help(plugin_id);
-                                return;
+                                return None;
                             }
                             let args: Vec<String> = parts.map(|s| s.to_string()).collect();
                             execute_plugin_command(component, action, &args);
@@ -134,6 +217,7 @@ fn handle_command(line: &str, plugin_manager: Option<&PluginManager>, default_do
             }
         }
     }
+    new_dir
 }
 
 /// 执行插件命令
@@ -151,16 +235,40 @@ fn execute_plugin_command(component: &crate::plugin::ComponentInfo, action: &str
     };
 
     let mut command = Command::new(loader_path);
-    command.arg("--manifest").arg("plugins/manifest.yaml");
+    // 使用绝对路径的 manifest，确保 cd 后仍能找到
+    let manifest = manifest_path();
+    command.arg("--manifest").arg(manifest.to_string_lossy().as_ref());
     command.arg("--component").arg(&component.id);
     command.arg("--action").arg(action);
 
     if action == "flash" {
         if let Some(file) = args.first() {
             command.arg("--file").arg(file);
+            // 传递 flash 的额外参数 (如 --address, --no-verify)
+            if args.len() > 1 {
+                command.arg("--");
+                for arg in &args[1..] {
+                    command.arg(arg);
+                }
+            }
         } else {
             println!("{}", "错误: flash 命令需要指定文件路径。".red());
             return;
+        }
+    } else if !args.is_empty() {
+        // 非 flash 命令：所有参数通过 -- 传递
+        // 如果第一个参数不是以 - 开头，自动添加 --file 前缀
+        command.arg("--");
+        let mut file_handled = false;
+        if let Some(first) = args.first() {
+            if !first.starts_with('-') {
+                command.arg("--file").arg(first);
+                file_handled = true;
+            }
+        }
+        let start = if file_handled { 1 } else { 0 };
+        for arg in &args[start..] {
+            command.arg(arg);
         }
     }
 

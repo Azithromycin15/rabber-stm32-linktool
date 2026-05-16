@@ -178,6 +178,13 @@ pub fn find_stlink_programmer_tool() -> Option<String> {
 ///
 /// 查找 plugin-loader 二进制文件的路径。
 pub fn find_project_root() -> Option<PathBuf> {
+    // 优先使用启动时保存的 PROJECT_ROOT，确保 cd 后仍可定位资源
+    if let Ok(root) = env::var("PROJECT_ROOT") {
+        let p = PathBuf::from(&root);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
     let mut path = env::current_dir().ok()?;
     loop {
         if path.join("Cargo.toml").is_file() && path.join("plugins").is_dir() {

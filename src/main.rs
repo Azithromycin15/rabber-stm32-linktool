@@ -14,7 +14,7 @@ mod utils;
 use clap::Parser;
 use colored::*;
 use std::io::{self, Write};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::process::Command;
 
 use cli::Args;
@@ -33,10 +33,21 @@ use utils::{check_openocd_installed, check_stlink_tools_installed, cargo_package
 fn main() {
     let _args = Args::parse();
 
+    // 保存项目根目录为绝对路径，确保 cd 后资源查找不受影响
+    if let Some(root) = find_project_root() {
+        if let Ok(canonical) = root.canonicalize() {
+            std::env::set_var("PROJECT_ROOT", canonical.to_string_lossy().as_ref());
+        } else {
+            std::env::set_var("PROJECT_ROOT", root.to_string_lossy().as_ref());
+        }
+    }
+
     let log_path = init_logger().unwrap_or_else(|err| {
         eprintln!("无法初始化日志: {}", err);
         String::new()
     });
+    // 设置环境变量供插件使用
+    std::env::set_var("RABBER_LOG_FILE", &log_path);
     println!("{}", format!("[日志] 写入 {}", log_path).cyan());
     log_info(&format!("Application start, log file: {}", log_path));
 
@@ -169,7 +180,8 @@ fn main() {
     // 扫描 USB 设备
     print!("{}", "[*] 扫描 USB 设备...".cyan());
     io::stdout().flush().ok();
-    if !detect_stlink_by_usb() {
+    let device_detected = detect_stlink_by_usb();
+    if !device_detected {
         println!(" {}", "未检测到 ST-Link 设备".red());
         #[cfg(target_os = "linux")]
         {
@@ -184,27 +196,42 @@ fn main() {
             println!("{}", "[!] 请检查设备管理器中是否有 ST-Link 设备。".yellow());
             println!("{}", "[!] 尝试运行: Get-PnpDevice | Where-Object { $_.InstanceId -like '*USB*' }".yellow());
         }
-        return;
+        #[cfg(target_os = "macos")]
+        {
+            println!("{}", "[!] 尝试列出 USB 设备...".yellow());
+            let _ = Command::new("system_profiler")
+                .args(["SPUSBDataType"])
+                .status();
+        }
+        println!("{}", "[!] 未检测到可供使用的 ST-Link 或 OpenOCD 支持的设备，将进入命令行界面。".yellow());
+        println!("{}", "[!] 烧录/复位等功能将不可用，但您仍可使用 pwd/cd/插件编译等命令。".yellow());
+    } else {
+        println!(" {}", "检测到 ST-Link 设备".green());
     }
-    println!(" {}", "检测到 ST-Link 设备".green());
 
     // 获取并显示 ST-Link 信息
-    let stlink_info = get_stlink_info();
-    print_stlink_info(&stlink_info);
+    if device_detected {
+        let stlink_info = get_stlink_info();
+        print_stlink_info(&stlink_info);
+    }
 
     // 尝试通过 SWD 读取 MCU 信息
-    println!("\n{}", "[*] 尝试通过 SWD 读取 MCU 信息...".cyan());
-    let mcu_info = get_mcu_info_via_swd();
-    if !mcu_info.chip_id.is_empty() {
-        println!(" {}", "成功".green());
-        print_mcu_info(&mcu_info);
+    if device_detected {
+        println!("\n{}", "[*] 尝试通过 SWD 读取 MCU 信息...".cyan());
+        let mcu_info = get_mcu_info_via_swd();
+        if !mcu_info.chip_id.is_empty() {
+            println!(" {}", "成功".green());
+            print_mcu_info(&mcu_info);
+        } else {
+            println!(" {}", "失败".red());
+            println!("{}", "[!] 可能的原因:" .yellow());
+            println!("    1. 目标板未正确连接或未供电");
+            println!("    2. SWD 接口连接错误");
+            println!("    3. 目标 MCU 处于休眠/复位状态");
+            println!("    4. SWD 接口被禁用（尝试先擦除 Flash）");
+        }
     } else {
-        println!(" {}", "失败".red());
-        println!("{}", "[!] 可能的原因:" .yellow());
-        println!("    1. 目标板未正确连接或未供电");
-        println!("    2. SWD 接口连接错误");
-        println!("    3. 目标 MCU 处于休眠/复位状态");
-        println!("    4. SWD 接口被禁用（尝试先擦除 Flash）");
+        println!("{}", "\n[!] 未检测到设备，跳过 MCU 信息读取。".yellow());
     }
 
     // 进入交互模式
@@ -213,4 +240,3 @@ fn main() {
 
     interactive_mode(plugin_manager, default_downloader_id);
 }
-

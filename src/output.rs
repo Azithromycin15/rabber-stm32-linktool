@@ -6,10 +6,23 @@ use colored::*;
 use crate::stlink::{MCUInfo, STLinkInfo};
 
 /// 打印应用程序横幅
+///
+/// 使用动态宽度计算确保中英文混排时边框对齐。
 pub fn print_banner(version: &str) {
-    println!("{}", "╔══════════════════════════════════════════════════════╗".cyan());
-    println!("{}", format!("║               Rabber烧录器 v{: <17}║", version).cyan());
-    println!("{}", "╚══════════════════════════════════════════════════════╝".cyan());
+    let text = format!("Rabber烧录器 v{}", version);
+    // 计算终端显示宽度：ASCII 字符占 1 列，CJK 字符占 2 列
+    let display_width: usize = text
+        .chars()
+        .map(|c| if c.is_ascii() { 1 } else { 2 })
+        .sum();
+    let side_padding = 17;
+    let inner_width = side_padding * 2 + display_width;
+    let border = "═".repeat(inner_width);
+    let pad = " ".repeat(side_padding);
+
+    println!("{}", format!("╔{}╗", border).cyan());
+    println!("{}", format!("║{}{}{}║", pad, text, pad).cyan());
+    println!("{}", format!("╚{}╝", border).cyan());
 }
 
 /// 打印 ST-Link 设备信息
@@ -60,6 +73,8 @@ pub fn print_mcu_info(info: &MCUInfo) {
 pub fn show_help() {
     println!("{}", "可用命令:" .cyan());
     println!("  help [plugin]      显示帮助信息，传入插件 ID 可查看插件命令");
+    println!("  pwd                显示当前工作目录");
+    println!("  cd <目录>          切换工作目录 (支持 ~, -, .., 相对/绝对路径)");
     println!("  info               查看 MCU 信息");
     println!("  flash <file>       烧录文件到 MCU 并自动剥离 ELF 调试信息 (支持 ELF 和 HEX)");
     println!("  reset              复位 MCU");

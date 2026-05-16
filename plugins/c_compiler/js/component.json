@@ -1,0 +1,33 @@
+{
+  "id": "c_compiler",
+  "plugin_name": "C Source Compiler",
+  "command": "cc",
+  "name": "C Compiler",
+  "component_type": "tool",
+  "description": "Compile C source files to ELF/HEX/BIN for MCU firmware development.",
+  "python_module": "plugins/c_compiler/python/compiler.py",
+  "js_module": "plugins/c_compiler/js/component.json",
+  "metadata": {
+    "vendor_id": "",
+    "product_ids": [],
+    "supported_platforms": ["linux", "windows", "macos"],
+    "flash_start_address": "0x08000000"
+  },
+  "actions": [
+    {
+      "name": "compile",
+      "description": "Compile a C source file to ELF, HEX and BIN formats",
+      "args": "<file.c> [--mcu <target>] [--address <addr>]"
+    },
+    {
+      "name": "info",
+      "description": "Show compiler toolchain information",
+      "args": ""
+    },
+    {
+      "name": "clean",
+      "description": "Clean build and process directories",
+      "args": ""
+    }
+  ]
+}

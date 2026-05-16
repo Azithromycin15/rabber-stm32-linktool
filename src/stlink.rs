@@ -156,6 +156,10 @@ pub fn get_stlink_info() -> STLinkInfo {
             // 序列号可能需要不同的命令
             info.serial = "Not available".to_string();
         }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let _ = &cli_path;
+        }
     }
     if let Some((vendor_id, product_ids)) = default_stlink_metadata() {
         info.vid = vendor_id;

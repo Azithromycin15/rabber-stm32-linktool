@@ -159,7 +159,7 @@ func listComponents(manifest *PluginManifest) {
 }
 
 // executePython runs the Python script for the specified component and action.
-func executePython(component *ComponentInfo, action string, filePath string, address string, noVerify bool, pluginRoot string) error {
+func executePython(component *ComponentInfo, action string, filePath string, address string, noVerify bool, extraArgs []string, pluginRoot string) error {
     scriptPath := filepath.Clean(component.PythonModule)
     if !filepath.IsAbs(scriptPath) {
         // If relative, treat it as relative to the repository root or plugin root.
@@ -175,6 +175,7 @@ func executePython(component *ComponentInfo, action string, filePath string, add
     if noVerify {
         args = append(args, "--no-verify")
     }
+	args = append(args, extraArgs...)
     cmd := exec.Command("python3", args...)
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
@@ -227,7 +228,7 @@ func main() {
     }
 
     fmt.Printf("Loading component '%s' (%s)\n", component.Name, component.ID)
-    err = executePython(component, *action, *filePath, *address, *noVerify, pluginRootPath)
+    err = executePython(component, *action, *filePath, *address, *noVerify, flag.Args(), pluginRootPath)
     if err != nil {
         fmt.Fprintf(os.Stderr, "Component execution failed: %v\n", err)
         os.Exit(1)
