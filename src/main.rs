@@ -64,7 +64,7 @@ fn init_logging() {
 }
 
 fn check_env() {
-    let v = cargo_package_version().unwrap_or_else(|| "1.2.0".into());
+    let v = cargo_package_version().unwrap_or_else(|| "1.3.2-Hotfix".into());
     print_banner(&v);
     if !prepare_runtime_environment() {
         println!("{}", "[!] 环境不完整".yellow());

@@ -209,8 +209,8 @@ pub fn ensure_plugin_loader_binary() -> bool {
 
 // ── 插件源码环境 ──
 
-const GITEE_REPO: &str = "https://gitee.com/azithromycin/rabber-stm32-linktool-plugin-loader.git";
-const GITHUB_REPO: &str = "https://github.com/azithromycin/rabber-stm32-linktool-plugin-loader.git";
+const GITEE_REPO: &str = "https://gitee.com/kroazithromycin/rabber-stm32-linktool-plugin-loader.git";
+const GITHUB_REPO: &str = "https://github.com/Azithromycin15/rabber-stm32-linktool-plugin-loader.git";
 
 fn select_loader_repo() -> &'static str {
     // 尝试通过 ipinfo.io 判断地理位置，优先使用国内镜像
