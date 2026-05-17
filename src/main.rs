@@ -14,8 +14,7 @@ mod utils;
 use colored::*;
 use std::io::{self, Write};
 
-use cli::Args;
-use clap::Parser;
+use cli::parse_cli;
 use install::{install_stlink_tools, prompt_install_stlink_tools};
 use logger::{info as log_info, init_logger, warn as log_warn};
 use output::{print_banner, print_mcu_info, print_stlink_info};
@@ -23,21 +22,29 @@ use plugin::PluginManager;
 use shell::interactive_mode;
 use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
 use utils::{
-    cargo_package_version, check_openocd_installed, check_stlink_tools_installed,
-    ensure_plugin_loader_binary, find_project_root, is_project_root, is_root,
-    manifest_path, plugin_dir, prepare_runtime_environment, print_environment_summary,
+    build_privileged_command, cargo_package_version, check_openocd_installed,
+    check_stlink_tools_installed, ensure_plugin_loader_binary, find_project_root,
+    find_plugin_loader_tool, is_project_root, manifest_path, plugin_dir,
+    prepare_runtime_environment, print_environment_summary,
 };
 
 fn main() {
-    let _ = Args::parse();
+    let cli = parse_cli();
     set_project_root();
     init_logging();
     check_env();
-    let (mgr, dl) = probe();
+    let (mut mgr, dl) = probe();
     check_perms();
     if !check_tools() { return; }
     detect_device();
-    interactive_mode(mgr, dl);
+
+    // 直调模式: rabber <插件ID> <命令> [参数...]
+    if let Some((pid, cmd, extra_args)) = cli {
+        direct_plugin_run(mgr.as_ref(), &pid, &cmd, &extra_args);
+        return;
+    }
+
+    interactive_mode(&mut mgr, dl);
 }
 
 // ── 初始化 ──
@@ -125,10 +132,8 @@ fn choose_downloader(dls: &[&plugin::ComponentInfo], st: bool, oc: bool) -> Opti
 // ── 权限 & 工具链 ──
 
 fn check_perms() {
-    if !is_root() {
-        #[cfg(target_os = "linux")] println!("{}", "[!] 建议 root 权限".yellow());
-        #[cfg(target_os = "windows")] println!("{}", "[!] 建议管理员权限".yellow());
-    }
+    // 不再在启动时强制建议 sudo。
+    // 需要权限的操作会通过 build_privileged_command 自动索要单次 sudo。
 }
 
 fn check_tools() -> bool {
@@ -164,5 +169,77 @@ fn detect_device() {
         }
         #[cfg(target_os = "windows")] println!("{}", "[!] 检查设备管理器".yellow());
         #[cfg(target_os = "macos")] println!("{}", "[!] system_profiler SPUSBDataType".yellow());
+    }
+}
+
+// ── 直调模式 ──
+
+/// 命令行直调模式: 通过 plugin-loader 直接执行插件命令
+fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str, extra_args: &[String]) {
+    let m = match mgr {
+        Some(m) => m,
+        None => {
+            eprintln!("错误: 插件管理器不可用");
+            std::process::exit(1);
+        }
+    };
+
+    let component = match m.find(plugin_id) {
+        Some(c) => c,
+        None => {
+            eprintln!("错误: 未知插件 '{}'", plugin_id);
+            std::process::exit(1);
+        }
+    };
+
+    if !m.has_action(plugin_id, command) {
+        eprintln!("错误: 插件 '{}' 不支持命令 '{}'", plugin_id, command);
+        m.help(plugin_id);
+        std::process::exit(1);
+    }
+
+    let loader = match find_plugin_loader_tool() {
+        Some(p) => p,
+        None => {
+            eprintln!("错误: plugin-loader 未找到");
+            std::process::exit(1);
+        }
+    };
+
+    let mut cmd = build_privileged_command(&loader);
+    cmd.arg("--manifest")
+        .arg(manifest_path().to_string_lossy().as_ref())
+        .arg("--component")
+        .arg(&component.id)
+        .arg("--action")
+        .arg(command);
+
+    if command == "flash" {
+        if let Some(f) = extra_args.first() {
+            cmd.arg("--file").arg(f);
+            if extra_args.len() > 1 {
+                cmd.arg("--");
+                for a in &extra_args[1..] {
+                    cmd.arg(a);
+                }
+            }
+        } else {
+            eprintln!("错误: flash 需要文件路径");
+            std::process::exit(1);
+        }
+    } else if !extra_args.is_empty() {
+        cmd.arg("--");
+        for a in extra_args {
+            cmd.arg(a);
+        }
+    }
+
+    match cmd.status() {
+        Ok(s) if s.success() => {}
+        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("错误: {}", e);
+            std::process::exit(1);
+        }
     }
 }

@@ -45,7 +45,7 @@ pub fn print_mcu_info(info: &MCUInfo) {
 
 pub fn show_help() {
     println!("{}", "可用命令:".cyan());
-    println!("  help [plugin]      显示帮助");
+    println!("  help [plugin]      显示帮助 (help plugin 列出所有插件)");
     println!("  pwd                当前目录");
     println!("  cd <dir>           切换目录 (支持 ~/-/../相对/绝对路径)");
     println!("  info               MCU 信息");
@@ -53,4 +53,5 @@ pub fn show_help() {
     println!("  reset              复位 MCU");
     println!("  exit/quit          退出");
     println!("\n插件命令: <插件ID> <命令> [选项]");
+    println!("  plugin list/-l/-d/-r      列出/发现/刷新插件");
 }

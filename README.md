@@ -35,10 +35,37 @@ make plugin-loader # 仅 Go 插件加载器
 
 ## 🏃 运行
 
-建议使用 root 权限运行以获得完整 USB 访问权限：
+`rabber` 不需要 root 权限启动，程序会在需要 USB 访问时自动索要单次 `sudo` 权限。
+
+### Linux 推荐：配置 udev 规则（避免 sudo）
 
 ```bash
-sudo ./target/release/rabber-stm32-linktool
+# 创建 udev 规则文件
+sudo tee /etc/udev/rules.d/99-stlink.rules << 'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="0483", MODE="0666"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+配置后可直接运行，无需任何 sudo。
+
+### 运行
+
+```bash
+# 交互模式
+./target/release/rabber-stm32-linktool
+
+# 直调模式
+./target/release/rabber-stm32-linktool stlink_v2 flash firmware.hex
+```
+
+### 禁用自动 sudo
+
+设置环境变量 `RABBER_NO_SUDO=1` 可完全禁用自动 sudo：
+
+```bash
+RABBER_NO_SUDO=1 ./target/release/rabber-stm32-linktool
 ```
 
 ## ⌨️ 交互命令

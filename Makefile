@@ -56,7 +56,7 @@ run-plugin: plugin-loader
 # Create release build for current platform
 release: build
 	mkdir -p release
-	cp target/release/rabber-stm32-linktool release/rabber-stm32-linktool-$(VERSION)-$(HOST_OS)
+	cp target/release/rabber-stm32-linktool release/rabber-$(VERSION)-$(HOST_OS)
 	cp $(PLUGIN_LOADER_BIN) release/plugin-loader
 
 # Build Windows cross-compilation artifacts (requires `rustup target add x86_64-pc-windows-gnu` + mingw-w64)
@@ -69,7 +69,7 @@ release-win:
 	fi
 	cd $(GO_DIR) && GOOS=windows GOARCH=amd64 go build -o plugin-loader.exe
 	cargo build --release --target $(WIN_TARGET)
-	cp target/$(WIN_TARGET)/release/rabber-stm32-linktool.exe release/rabber-stm32-linktool-$(VERSION)-win64.exe
+	cp target/$(WIN_TARGET)/release/rabber-stm32-linktool.exe release/rabber-$(VERSION)-win64.exe
 	cp $(PLUGIN_LOADER_WIN_BIN) release/plugin-loader.exe
 
 # Full release: current platform + Windows

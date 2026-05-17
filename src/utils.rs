@@ -33,6 +33,18 @@ pub fn is_root() -> bool {
     }
 }
 
+/// 构建需要特权的命令: 非 root 时自动用 sudo 包装。
+/// 设置环境变量 `RABBER_NO_SUDO=1` 可禁用自动 sudo。
+pub fn build_privileged_command(program: &str) -> Command {
+    if is_root() || env::var("RABBER_NO_SUDO").is_ok() {
+        Command::new(program)
+    } else {
+        let mut c = Command::new("sudo");
+        c.arg(program);
+        c
+    }
+}
+
 /// 执行外部命令
 pub fn execute_command(cmd: &str, args: &[&str]) -> CommandResult {
     match Command::new(cmd).args(args)

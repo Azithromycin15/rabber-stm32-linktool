@@ -11,9 +11,9 @@ use rustyline::Editor;
 use crate::output::show_help;
 use crate::plugin::{ComponentInfo, PluginManager};
 use crate::stlink::get_mcu_info_via_swd;
-use crate::utils::{find_plugin_loader_tool, manifest_path};
+use crate::utils::{build_privileged_command, find_plugin_loader_tool, manifest_path, plugin_dir};
 
-pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloader: Option<String>) {
+pub fn interactive_mode(plugin_manager: &mut Option<PluginManager>, default_downloader: Option<String>) {
     let mut rl = Editor::<(), _>::new().expect("无法初始化编辑器");
     let mut cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
 
@@ -23,7 +23,7 @@ pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloade
                 let t = line.trim();
                 if t.is_empty() { continue; }
                 rl.add_history_entry(t).ok();
-                if let Some(d) = dispatch(t, plugin_manager.as_ref(), default_downloader.as_deref(), &mut cwd) {
+                if let Some(d) = dispatch(t, plugin_manager, default_downloader.as_deref(), &mut cwd) {
                     let _ = env::set_var("OLDPWD", cwd.to_string_lossy().as_ref());
                     match env::set_current_dir(&d) {
                         Ok(()) => { cwd = d; crate::logger::info(&format!("cd → {}", cwd.display())); }
@@ -38,14 +38,18 @@ pub fn interactive_mode(plugin_manager: Option<PluginManager>, default_downloade
     }
 }
 
-fn dispatch(line: &str, mgr: Option<&PluginManager>, dl: Option<&str>, cwd: &mut PathBuf) -> Option<PathBuf> {
+fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: &mut PathBuf) -> Option<PathBuf> {
     let mut parts = line.split_whitespace();
     let cmd = parts.next()?;
 
     match cmd {
         "exit" | "quit" => { println!("退出。"); std::process::exit(0); }
         "help" => if let Some(pid) = parts.next() {
-            mgr.map(|m| m.help(pid)).unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+            if pid == "plugin" {
+                mgr.as_ref().map(|m| m.help_all_plugins()).unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+            } else {
+                mgr.as_ref().map(|m| m.help(pid)).unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+            }
         } else { show_help(); }
         "pwd" => println!("{}", cwd.display()),
         "cd" => return cd(parts, cwd),
@@ -54,11 +58,48 @@ fn dispatch(line: &str, mgr: Option<&PluginManager>, dl: Option<&str>, cwd: &mut
             if !info.chip_id.is_empty() { crate::output::print_mcu_info(&info); }
             else { println!("{}", "无法获取 MCU 信息。".red()); }
         }
-        "flash" => flash(parts, mgr, dl),
-        "reset" => reset(mgr, dl),
+        "flash" => flash(parts, mgr.as_ref(), dl),
+        "reset" => reset(mgr.as_ref(), dl),
         pid => {
+            // plugin 命令: plugin list|discover|refresh|help
+            if pid == "plugin" {
+                match parts.next() {
+                    Some("discover") | Some("-d") => {
+                        let mp = manifest_path();
+                        match PluginManager::load_from(&mp.to_string_lossy()) {
+                            Some(new_mgr) => {
+                                *mgr = Some(new_mgr);
+                                let count = mgr.as_ref().map(|m| m.count()).unwrap_or(0);
+                                println!("{}", format!("插件列表已热加载 (discover), {} 个组件", count).green());
+                                mgr.as_ref().map(|m| m.list());
+                            }
+                            None => println!("{}", "无法加载 manifest.yaml".red()),
+                        }
+                    }
+                    Some("refresh") | Some("-r") => {
+                        let pd = plugin_dir();
+                        let mp = manifest_path();
+                        match PluginManager::probe_and_generate_manifest(&pd, &mp) {
+                            Some(new_mgr) => {
+                                *mgr = Some(new_mgr);
+                                let count = mgr.as_ref().map(|m| m.count()).unwrap_or(0);
+                                println!("{}", format!("插件已重新探测并刷新 (refresh), {} 个组件", count).green());
+                                mgr.as_ref().map(|m| m.list());
+                            }
+                            None => println!("{}", "重新探测插件失败".red()),
+                        }
+                    }
+                    Some("list") | Some("-l") | Some("help") => {
+                        mgr.as_ref().map(|m| m.help_all_plugins()).unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+                    }
+                    _ => {
+                        println!("{}", "用法: plugin list|discover|refresh|help".yellow());
+                    }
+                }
+                return None;
+            }
             // 插件命令
-            if let Some(m) = mgr {
+            if let Some(m) = mgr.as_ref() {
                 if let Some(c) = m.find(pid) {
                     if let Some(act) = parts.next() {
                         if act == "help" { m.help(pid); return None; }
@@ -114,7 +155,7 @@ fn run_plugin(component: &ComponentInfo, action: &str, args: &[String]) {
     let loader = match find_plugin_loader_tool() {
         Some(p) => p, None => { println!("{}", "plugin-loader 未找到".red()); return; }
     };
-    let mut cmd = std::process::Command::new(&loader);
+    let mut cmd = build_privileged_command(&loader);
     cmd.arg("--manifest").arg(manifest_path().to_string_lossy().as_ref())
         .arg("--component").arg(&component.id).arg("--action").arg(action);
 

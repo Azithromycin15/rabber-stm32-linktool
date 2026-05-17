@@ -115,4 +115,26 @@ impl PluginManager {
             None => println!("{}", format!("未知插件: {}", id).red()),
         }
     }
+
+    /// 列出所有可用插件及其命令用法
+    pub fn help_all_plugins(&self) {
+        if self.manifest.components.is_empty() {
+            println!("{}", "无可用插件".yellow());
+            return;
+        }
+        for c in &self.manifest.components {
+            println!("{}", format!("[{}] {} ({})", c.command, c.name, c.id).cyan());
+            println!("  {}", c.description);
+            match c.actions.as_ref().filter(|a| !a.is_empty()) {
+                Some(actions) => {
+                    for a in actions {
+                        println!("  {} {} {}", c.id, a.name, a.args.as_deref().unwrap_or(""));
+                        println!("      {}", a.description);
+                    }
+                }
+                None => println!("  无可用命令"),
+            }
+            println!();
+        }
+    }
 }
