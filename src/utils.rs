@@ -142,19 +142,9 @@ pub fn plugin_loader_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("plugin-loader"))
 }
 
-/// 从 Cargo.toml 解析版本号
-pub fn cargo_package_version() -> Option<String> {
-    let text = fs::read_to_string("Cargo.toml").ok()?;
-    for line in text.lines() {
-        if let Some(rest) = line.trim().strip_prefix("version") {
-            if let Some(start) = rest.find('"') {
-                if let Some(end) = rest[start + 1..].find('"') {
-                    return Some(rest[start + 1..start + 1 + end].to_string());
-                }
-            }
-        }
-    }
-    None
+/// 返回编译时嵌入的 Cargo.toml 版本号
+pub fn cargo_package_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 // ── 依赖检测 ──
