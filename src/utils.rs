@@ -344,19 +344,19 @@ pub fn prepare_runtime_environment() -> bool {
     let mut ok = true;
     let _ = fs::create_dir_all(&logs_dir());
     if !check_go_installed() {
-        log_warn("Go 未检测到");
+        log_warn("Go 未检测到 (将尝试使用预编译 plugin-loader)");
         if let Some(s) = create_go_install_script() {
             println!("{}", format!("[!] Go 安装脚本已创建: {}", s.display()).yellow());
         }
-        ok = false;
     }
     if !ensure_plugin_loader_source() {
         log_warn("plugin-loader 源码未准备好");
         ok = false;
     }
     if !ensure_plugins_downloaded() { log_warn("插件下载失败"); ok = false; }
-    if check_go_installed() && !ensure_plugin_loader_binary() {
-        log_warn("plugin-loader 构建失败");
+    // 始终尝试获取/构建 plugin-loader（支持预编译二进制回退）
+    if !ensure_plugin_loader_binary() {
+        log_warn("plugin-loader 不可用");
         ok = false;
     }
     ok
