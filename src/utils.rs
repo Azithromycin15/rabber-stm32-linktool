@@ -280,28 +280,32 @@ fn ensure_plugin_loader_source() -> bool {
     let dir = plugin_loader_dir();
     if dir.join("main.go").is_file() { return true; }
 
-    // 尝试从项目根目录复制本地源码 (避免网络依赖)
+    // 首选：从远程仓库 git clone
+    if which::which("git").is_ok() {
+        let parent = dir.parent().unwrap_or(Path::new("."));
+        let _ = fs::create_dir_all(parent);
+        let ok = Command::new("git").args(["clone", "--depth", "1", select_loader_repo()])
+            .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
+        if ok {
+            println!("{}", format!("[✓] plugin-loader 源码已克隆: {}", dir.display()).green());
+            return true;
+        }
+        log_warn("git clone plugin-loader 失败, 尝试本地回退...");
+    }
+
+    // 回退：从项目根目录复制本地源码
     if let Some(root) = find_project_root() {
         let src = root.join("plugin-loader");
         if src.join("main.go").is_file() {
             let _ = fs::create_dir_all(dir.parent().unwrap_or(Path::new(".")));
             if copy_dir_all(&src, &dir).is_ok() && dir.join("main.go").is_file() {
-                println!("{}", format!("[✓] plugin-loader 源码已复制: {}", dir.display()).green());
+                println!("{}", format!("[✓] plugin-loader 源码已复制 (本地回退): {}", dir.display()).green());
                 return true;
             }
         }
     }
 
-    // 最后手段：git clone
-    if which::which("git").is_err() { return false; }
-    let parent = dir.parent().unwrap_or(Path::new("."));
-    let _ = fs::create_dir_all(parent);
-    let ok = Command::new("git").args(["clone", "--depth", "1", select_loader_repo()])
-        .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
-    if !ok {
-        log_warn(&format!("无法获取 plugin-loader 源码 (git clone 失败)"));
-    }
-    ok
+    false
 }
 
 fn ensure_plugins_downloaded() -> bool {
