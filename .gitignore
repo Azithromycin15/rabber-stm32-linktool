@@ -19,6 +19,10 @@ Cargo.lock
 *.swo
 *~
 
+# ── repos 编译产物 ──
+repos/**/build/
+repos/**/process/
+
 # ── DeepSeek TUI 配置 ──
 .deepseek/
 

@@ -1,0 +1,33 @@
+{
+  "id": "mcu_init",
+  "plugin_name": "MCU Template Initializer",
+  "command": "init",
+  "name": "MCU Init",
+  "component_type": "tool",
+  "description": "Create STM32 HAL template project from MCU model number. Supports fuzzy matching for inaccurate input.",
+  "python_module": "plugins/mcu_init/python/init.py",
+  "js_module": "plugins/mcu_init/js/component.json",
+  "metadata": {
+    "vendor_id": "",
+    "product_ids": [],
+    "supported_platforms": ["linux", "windows", "macos"],
+    "flash_start_address": "0x08000000"
+  },
+  "actions": [
+    {
+      "name": "init",
+      "description": "Initialize a new HAL template project for the given MCU model",
+      "args": "<mcu_model> [--force]"
+    },
+    {
+      "name": "list",
+      "description": "List all supported MCU models in the database",
+      "args": "[filter]"
+    },
+    {
+      "name": "info",
+      "description": "Show MCU template tool information",
+      "args": ""
+    }
+  ]
+}

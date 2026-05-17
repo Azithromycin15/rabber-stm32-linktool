@@ -109,7 +109,7 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                             return None;
                         }
                         let args: Vec<String> = parts.map(|s| s.to_string()).collect();
-                        run_plugin(c, act, &args);
+                        return run_plugin(c, act, &args);
                     } else {
                         println!("{}", "用法: <插件ID> <命令> [选项]".yellow());
                         m.help(pid);
@@ -142,35 +142,73 @@ fn flash(mut parts: std::str::SplitWhitespace, mgr: Option<&PluginManager>, dl: 
     let file = match parts.next() { Some(f) => f, None => { println!("{}", "用法: flash <file>".red()); return; } };
     let m = match mgr { Some(m) => m, None => { println!("{}", "插件管理器不可用。".red()); return; } };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
-    match c { Some(c) => run_plugin(c, "flash", &[file.into()]), None => println!("{}", "未找到下载器。".red()) }
+    match c { Some(c) => { run_plugin(c, "flash", &[file.into()]); } None => println!("{}", "未找到下载器。".red()) }
 }
 
 fn reset(mgr: Option<&PluginManager>, dl: Option<&str>) {
     let m = match mgr { Some(m) => m, None => { println!("{}", "插件管理器不可用。".red()); return; } };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
-    match c { Some(c) => run_plugin(c, "reset", &[]), None => println!("{}", "未找到下载器。".red()) }
+    match c { Some(c) => { run_plugin(c, "reset", &[]); } None => println!("{}", "未找到下载器。".red()) }
 }
 
-fn run_plugin(component: &ComponentInfo, action: &str, args: &[String]) {
+/// Execute a plugin action via plugin-loader and return an optional cd target path.
+/// When the Python component outputs `__RABBER_CD__:<path>`, that path is returned
+/// so the interactive shell can automatically change directory.
+fn run_plugin(component: &ComponentInfo, action: &str, args: &[String]) -> Option<PathBuf> {
     let loader = match find_plugin_loader_tool() {
-        Some(p) => p, None => { println!("{}", "plugin-loader 未找到".red()); return; }
+        Some(p) => p,
+        None => { println!("{}", "plugin-loader 未找到".red()); return None; }
     };
     let mut cmd = build_privileged_command(&loader);
     cmd.arg("--manifest").arg(manifest_path().to_string_lossy().as_ref())
-        .arg("--component").arg(&component.id).arg("--action").arg(action);
+        .arg("--component").arg(&component.id).arg("--action").arg(action)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
 
     if action == "flash" {
-        if let Some(f) = args.first() { cmd.arg("--file").arg(f); if args.len() > 1 { cmd.arg("--"); for a in &args[1..] { cmd.arg(a); } } }
-        else { println!("{}", "flash 需要文件路径".red()); return; }
+        if let Some(f) = args.first() {
+            cmd.arg("--file").arg(f);
+            if args.len() > 1 {
+                cmd.arg("--");
+                for a in &args[1..] { cmd.arg(a); }
+            }
+        } else {
+            println!("{}", "flash 需要文件路径".red());
+            return None;
+        }
     } else if !args.is_empty() {
         cmd.arg("--");
         for a in args { cmd.arg(a); }
     }
 
     println!("{}", format!("执行 {} {}...", component.id, action).cyan());
-    match cmd.status() {
-        Ok(s) if s.success() => println!("{}", "成功".green()),
-        Ok(_) => println!("{}", "失败".red()),
-        Err(e) => println!("{}", format!("错误: {}", e).red()),
+    match cmd.output() {
+        Ok(output) => {
+            // Print stderr first (diagnostics)
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.is_empty() {
+                eprint!("{}", stderr);
+            }
+            // Print stdout (scanning for cd marker)
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut cd_target: Option<PathBuf> = None;
+            for line in stdout.lines() {
+                if let Some(path_str) = line.strip_prefix("__RABBER_CD__:") {
+                    cd_target = Some(PathBuf::from(path_str.trim()));
+                } else {
+                    println!("{}", line);
+                }
+            }
+            if output.status.success() {
+                println!("{}", "成功".green());
+            } else {
+                println!("{}", "失败".red());
+            }
+            cd_target
+        }
+        Err(e) => {
+            println!("{}", format!("错误: {}", e).red());
+            None
+        }
     }
 }
