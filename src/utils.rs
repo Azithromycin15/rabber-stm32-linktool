@@ -247,22 +247,32 @@ pub fn ensure_plugin_loader_binary() -> bool {
 
 // ── 插件源码环境 ──
 
-const GITEE_REPO: &str = "https://gitee.com/kroazithromycin/rabber-stm32-linktool-plugin-loader.git";
-const GITHUB_REPO: &str = "https://github.com/Azithromycin15/rabber-stm32-linktool-plugin-loader.git";
+const GITEE_LOADER_REPO: &str = "https://gitee.com/kroazithromycin/rabber-stm32-linktool-plugin-loader.git";
+const GITHUB_LOADER_REPO: &str = "https://github.com/Azithromycin15/rabber-stm32-linktool-plugin-loader.git";
 
-fn select_loader_repo() -> &'static str {
-    // 尝试通过 ipinfo.io 判断地理位置，优先使用国内镜像
+const GITEE_PLUGINS_REPO: &str = "https://gitee.com/kroazithromycin/rabber-plugins.git";
+const GITHUB_PLUGINS_REPO: &str = "https://github.com/Azithromycin15/rabber-plugins.git";
+
+fn is_cn_network() -> bool {
     for fetcher in &["curl", "wget"] {
         if which::which(fetcher).is_err() { continue; }
         let url = "https://ipinfo.io/country";
         let args: Vec<&str> = if *fetcher == "curl" { vec!["-s", url] } else { vec!["-qO-", url] };
         if let Ok(o) = Command::new(fetcher).args(&args).output() {
             if o.status.success() && String::from_utf8_lossy(&o.stdout).trim().eq_ignore_ascii_case("CN") {
-                return GITEE_REPO;
+                return true;
             }
         }
     }
-    GITHUB_REPO
+    false
+}
+
+fn select_loader_repo() -> &'static str {
+    if is_cn_network() { GITEE_LOADER_REPO } else { GITHUB_LOADER_REPO }
+}
+
+fn select_plugins_repo() -> &'static str {
+    if is_cn_network() { GITEE_PLUGINS_REPO } else { GITHUB_PLUGINS_REPO }
 }
 
 /// 递归复制目录
@@ -315,7 +325,35 @@ fn ensure_plugin_loader_source() -> bool {
 
 fn ensure_plugins_downloaded() -> bool {
     let dir = plugin_dir();
-    dir.join("manifest.yaml").is_file() || dir.join("stlink_v2").is_dir() || true
+    // 已有 manifest.yaml 说明插件已就绪
+    if dir.join("manifest.yaml").is_file() { return true; }
+
+    // 首选：从远程仓库 git clone
+    if which::which("git").is_ok() {
+        let parent = dir.parent().unwrap_or(Path::new("."));
+        let _ = fs::create_dir_all(parent);
+        let ok = Command::new("git").args(["clone", "--depth", "1", select_plugins_repo()])
+            .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
+        if ok {
+            println!("{}", format!("[✓] 插件已克隆: {}", dir.display()).green());
+            return dir.join("manifest.yaml").is_file();
+        }
+        log_warn("git clone 插件失败, 尝试本地回退...");
+    }
+
+    // 回退：从项目根目录复制本地 plugins
+    if let Some(root) = find_project_root() {
+        let src = root.join("plugins");
+        if src.join("manifest.yaml").is_file() {
+            let _ = fs::create_dir_all(dir.parent().unwrap_or(Path::new(".")));
+            if copy_dir_all(&src, &dir).is_ok() && dir.join("manifest.yaml").is_file() {
+                println!("{}", format!("[✓] 插件已复制 (本地回退): {}", dir.display()).green());
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn create_go_install_script() -> Option<PathBuf> {
