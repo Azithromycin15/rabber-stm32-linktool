@@ -145,11 +145,15 @@ pub fn find_project_root() -> Option<PathBuf> {
 pub fn plugin_dir() -> PathBuf {
     env::var("PLUGIN_DIR").ok().map(PathBuf::from)
         .or_else(|| find_project_root().map(|r| r.join("plugins")))
+        .or_else(|| exe_dir().map(|d| d.join("plugins")).filter(|p| p.is_dir()))
         .unwrap_or_else(|| PathBuf::from("plugins"))
 }
 
 pub fn logs_dir() -> PathBuf {
-    find_project_root().map_or_else(|| PathBuf::from("logs"), |r| r.join("logs"))
+    env::var("LOGS_DIR").ok().map(PathBuf::from)
+        .or_else(|| find_project_root().map(|r| r.join("logs")))
+        .or_else(|| exe_dir().map(|d| d.join("logs")).filter(|p| p.is_dir()))
+        .unwrap_or_else(|| PathBuf::from("logs"))
 }
 
 pub fn manifest_path() -> PathBuf {
@@ -160,6 +164,7 @@ pub fn manifest_path() -> PathBuf {
 pub fn plugin_loader_dir() -> PathBuf {
     env::var("PLUGIN_LOADER_DIR").ok().map(PathBuf::from)
         .or_else(|| find_project_root().map(|r| r.join("plugin-loader")))
+        .or_else(|| exe_dir().map(|d| d.join("plugin-loader")).filter(|p| p.is_dir()))
         .unwrap_or_else(|| PathBuf::from("plugin-loader"))
 }
 
