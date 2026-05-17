@@ -6,6 +6,7 @@ use colored::Colorize;
 use crate::logger::warn as log_warn;
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -105,18 +106,38 @@ const STLINK_NIX_FLASH_PATHS: &[&str] = &[
 
 // ── 路径查询 ──
 
-/// 查找项目根目录（包含 Cargo.toml 和 plugins）
+/// 返回当前可执行文件所在目录
+fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf))
+}
+
+/// 查找项目根目录。
+///
+/// 优先级:
+/// 1. PROJECT_ROOT 环境变量
+/// 2. 从当前目录向上查找 Cargo.toml + plugins (开发环境)
+/// 3. 从可执行文件目录向上查找 plugins + plugin-loader (发布环境)
 pub fn find_project_root() -> Option<PathBuf> {
     if let Ok(root) = env::var("PROJECT_ROOT") {
         let p = PathBuf::from(&root);
         if p.is_dir() { return Some(p); }
     }
+    // 开发环境: 从当前目录向上查找
     let mut path = env::current_dir().ok()?;
     loop {
         if path.join("Cargo.toml").is_file() && path.join("plugins").is_dir() {
             return Some(path);
         }
         if !path.pop() { break; }
+    }
+    // 发布环境: 从可执行文件目录向上查找
+    if let Some(mut exe_path) = exe_dir() {
+        loop {
+            if exe_path.join("plugins").is_dir() {
+                return Some(exe_path);
+            }
+            if !exe_path.pop() { break; }
+        }
     }
     None
 }
@@ -177,6 +198,11 @@ pub fn find_plugin_loader_tool() -> Option<String> {
         try_paths.push(root.join("plugins").join(exe));
         try_paths.push(root.join("plugin-loader").join(exe));
     }
+    // 可执行文件相邻目录
+    if let Some(exe_dir) = exe_dir() {
+        try_paths.push(exe_dir.join(exe));
+        try_paths.push(exe_dir.join("plugins").join(exe));
+    }
     try_paths.push(PathBuf::from("plugins").join(exe));
     try_paths.push(PathBuf::from("plugin-loader").join(exe));
     try_paths.push(PathBuf::from("/usr/local/bin").join(exe));
@@ -186,8 +212,25 @@ pub fn find_plugin_loader_tool() -> Option<String> {
 
 pub fn ensure_plugin_loader_binary() -> bool {
     if find_plugin_loader_tool().is_some() { return true; }
+
     let dir = plugin_loader_dir();
     let out = dir.join(plugin_loader_exe());
+
+    // 尝试从项目根目录复制预编译的二进制
+    if let Some(root) = find_project_root() {
+        for src_dir in &["plugins", "release"] {
+            let prebuilt = root.join(src_dir).join(plugin_loader_exe());
+            if prebuilt.is_file() {
+                let _ = fs::create_dir_all(&dir);
+                if fs::copy(&prebuilt, &out).is_ok() {
+                    println!("{}", format!("[✓] plugin-loader 已复制 (来自 {}): {}", src_dir, out.display()).green());
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 尝试 Go 编译
     let ok = Command::new("go").args(["build", "-o"]).arg(&out)
         .current_dir(&dir).status()
         .map(|s| s.success() && out.is_file()).unwrap_or(false);
@@ -217,14 +260,48 @@ fn select_loader_repo() -> &'static str {
     GITHUB_REPO
 }
 
+/// 递归复制目录
+fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else {
+            fs::copy(entry.path(), &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
 fn ensure_plugin_loader_source() -> bool {
     let dir = plugin_loader_dir();
     if dir.join("main.go").is_file() { return true; }
+
+    // 尝试从项目根目录复制本地源码 (避免网络依赖)
+    if let Some(root) = find_project_root() {
+        let src = root.join("plugin-loader");
+        if src.join("main.go").is_file() {
+            let _ = fs::create_dir_all(dir.parent().unwrap_or(Path::new(".")));
+            if copy_dir_all(&src, &dir).is_ok() && dir.join("main.go").is_file() {
+                println!("{}", format!("[✓] plugin-loader 源码已复制: {}", dir.display()).green());
+                return true;
+            }
+        }
+    }
+
+    // 最后手段：git clone
     if which::which("git").is_err() { return false; }
     let parent = dir.parent().unwrap_or(Path::new("."));
     let _ = fs::create_dir_all(parent);
-    Command::new("git").args(["clone", "--depth", "1", select_loader_repo()])
-        .arg(&dir).status().map(|s| s.success()).unwrap_or(false)
+    let ok = Command::new("git").args(["clone", "--depth", "1", select_loader_repo()])
+        .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
+    if !ok {
+        log_warn(&format!("无法获取 plugin-loader 源码 (git clone 失败)"));
+    }
+    ok
 }
 
 fn ensure_plugins_downloaded() -> bool {
