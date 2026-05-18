@@ -123,6 +123,21 @@ impl PluginManager {
     }
 
     /// 列出所有可用插件及其命令用法
+    /// 返回所有插件的命令名列表（用于 Tab 补全）
+    pub fn all_commands(&self) -> Vec<String> {
+        self.manifest.components.iter().map(|c| c.command.clone()).collect()
+    }
+
+    /// 返回指定命令名对应的所有 action 名称（预留：用于 Tab 补全插件 action）
+    #[allow(dead_code)]
+    pub fn actions_for_command(&self, command: &str) -> Vec<String> {
+        self.manifest.components.iter()
+            .find(|c| c.command == command)
+            .and_then(|c| c.actions.as_ref())
+            .map(|actions| actions.iter().map(|a| a.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
     pub fn help_all_plugins(&self) {
         if self.manifest.components.is_empty() {
             println!("{}", "无可用插件".yellow());
