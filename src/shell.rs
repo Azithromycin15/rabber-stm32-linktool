@@ -4,7 +4,7 @@
 
 use colored::*;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -52,14 +52,26 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
             }
         } else { show_help(); }
         "pwd" => println!("{}", cwd.display()),
+        "ls" => {
+            let mut cmd = std::process::Command::new("ls");
+            for arg in parts { cmd.arg(arg); }
+            match cmd.status() {
+                Ok(s) => {
+                    if !s.success() {
+                        println!("{}", format!("ls 退出码: {}", s.code().unwrap_or(-1)).red());
+                    }
+                }
+                Err(e) => println!("{}", format!("执行 ls 失败: {}", e).red()),
+            }
+        }
         "cd" => return cd(parts, cwd),
         "info" => {
             let info = get_mcu_info_via_swd();
             if !info.chip_id.is_empty() { crate::output::print_mcu_info(&info); }
             else { println!("{}", "无法获取 MCU 信息。".red()); }
         }
-        "flash" => flash(parts, mgr.as_ref(), dl),
-        "reset" => reset(mgr.as_ref(), dl),
+        "flash" => flash(parts, mgr.as_ref(), dl, cwd),
+        "reset" => reset(mgr.as_ref(), dl, cwd),
         pid => {
             // plugin 命令: plugin list|discover|refresh|help
             if pid == "plugin" {
@@ -98,21 +110,22 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                 }
                 return None;
             }
-            // 插件命令
+            // 插件命令（按 manifest 中的 command 字段匹配）
             if let Some(m) = mgr.as_ref() {
-                if let Some(c) = m.find(pid) {
+                if let Some(c) = m.find_by_command(pid) {
+                    let cid = &c.id;
                     if let Some(act) = parts.next() {
-                        if act == "help" { m.help(pid); return None; }
-                        if !m.has_action(pid, act) {
+                        if act == "help" { m.help(cid); return None; }
+                        if !m.has_action(cid, act) {
                             println!("{}", format!("插件 '{}' 不支持 '{}'", pid, act).red());
-                            m.help(pid);
+                            m.help(cid);
                             return None;
                         }
                         let args: Vec<String> = parts.map(|s| s.to_string()).collect();
-                        return run_plugin(c, act, &args);
+                        return run_plugin(c, act, &args, cwd);
                     } else {
                         println!("{}", "用法: <插件ID> <命令> [选项]".yellow());
-                        m.help(pid);
+                        m.help(cid);
                     }
                 } else {
                     println!("{}: {}", "未知命令".red(), cmd);
@@ -138,23 +151,26 @@ fn cd(mut parts: std::str::SplitWhitespace, cwd: &PathBuf) -> Option<PathBuf> {
     }
 }
 
-fn flash(mut parts: std::str::SplitWhitespace, mgr: Option<&PluginManager>, dl: Option<&str>) {
+fn flash(mut parts: std::str::SplitWhitespace, mgr: Option<&PluginManager>, dl: Option<&str>, cwd: &Path) {
     let file = match parts.next() { Some(f) => f, None => { println!("{}", "用法: flash <file>".red()); return; } };
     let m = match mgr { Some(m) => m, None => { println!("{}", "插件管理器不可用。".red()); return; } };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
-    match c { Some(c) => { run_plugin(c, "flash", &[file.into()]); } None => println!("{}", "未找到下载器。".red()) }
+    match c { Some(c) => { run_plugin(c, "flash", &[file.into()], cwd); } None => println!("{}", "未找到下载器。".red()) }
 }
 
-fn reset(mgr: Option<&PluginManager>, dl: Option<&str>) {
+fn reset(mgr: Option<&PluginManager>, dl: Option<&str>, cwd: &Path) {
     let m = match mgr { Some(m) => m, None => { println!("{}", "插件管理器不可用。".red()); return; } };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
-    match c { Some(c) => { run_plugin(c, "reset", &[]); } None => println!("{}", "未找到下载器。".red()) }
+    match c { Some(c) => { run_plugin(c, "reset", &[], cwd); } None => println!("{}", "未找到下载器。".red()) }
 }
+
+/// 需要将首个参数作为文件路径传给 `--file` 的 action 名称
+const FILE_ACTION_NAMES: &[&str] = &["flash", "verify", "compile", "strip"];
 
 /// Execute a plugin action via plugin-loader and return an optional cd target path.
 /// When the Python component outputs `__RABBER_CD__:<path>`, that path is returned
 /// so the interactive shell can automatically change directory.
-fn run_plugin(component: &ComponentInfo, action: &str, args: &[String]) -> Option<PathBuf> {
+fn run_plugin(component: &ComponentInfo, action: &str, args: &[String], cwd: &Path) -> Option<PathBuf> {
     let loader = match find_plugin_loader_tool() {
         Some(p) => p,
         None => { println!("{}", "plugin-loader 未找到".red()); return None; }
@@ -165,15 +181,20 @@ fn run_plugin(component: &ComponentInfo, action: &str, args: &[String]) -> Optio
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    if action == "flash" {
+    if FILE_ACTION_NAMES.contains(&action) {
         if let Some(f) = args.first() {
-            cmd.arg("--file").arg(f);
+            let resolved = if Path::new(f).is_relative() {
+                cwd.join(f)
+            } else {
+                PathBuf::from(f)
+            };
+            cmd.arg("--file").arg(resolved.to_string_lossy().as_ref());
             if args.len() > 1 {
                 cmd.arg("--");
                 for a in &args[1..] { cmd.arg(a); }
             }
         } else {
-            println!("{}", "flash 需要文件路径".red());
+            println!("{}", format!("{} 需要文件路径", action).red());
             return None;
         }
     } else if !args.is_empty() {

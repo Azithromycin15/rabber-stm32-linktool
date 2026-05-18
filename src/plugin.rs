@@ -81,6 +81,11 @@ impl PluginManager {
         self.manifest.components.iter().find(|c| c.id == id)
     }
 
+    /// 通过 `command` 字段查找组件（用户输入的命令名，而非内部 id）
+    pub fn find_by_command(&self, command: &str) -> Option<&ComponentInfo> {
+        self.manifest.components.iter().find(|c| c.command == command)
+    }
+
     pub fn download_components(&self) -> Vec<&ComponentInfo> {
         self.manifest.components.iter()
             .filter(|c| Path::new(&c.python_module).file_name().map_or(false, |n| n == "downloader.py"))
@@ -101,12 +106,13 @@ impl PluginManager {
     }
 
     pub fn help(&self, id: &str) {
-        match self.find(id) {
+        let c = self.find_by_command(id).or_else(|| self.find(id));
+        match c {
             Some(c) => {
                 println!("{}", format!("[插件 {}]", c.name).cyan());
                 match c.actions.as_ref().filter(|a| !a.is_empty()) {
                     Some(actions) => for a in actions {
-                        println!("  {} {} {}", c.id, a.name, a.args.as_deref().unwrap_or(""));
+                        println!("  {} {} {}", c.command, a.name, a.args.as_deref().unwrap_or(""));
                         println!("      {}", a.description);
                     },
                     None => println!("  无可用命令"),

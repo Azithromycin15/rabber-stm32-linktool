@@ -46,6 +46,22 @@ pub fn build_privileged_command(program: &str) -> Command {
     }
 }
 
+/// 检查文件是否可执行（Unix: 检查 owner/group/other 任一执行位）
+fn is_executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        path.metadata()
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        // 非 Unix 平台：可读即视为可执行
+        path.is_file()
+    }
+}
+
 /// 执行外部命令
 pub fn execute_command(cmd: &str, args: &[&str]) -> CommandResult {
     match Command::new(cmd).args(args)
@@ -200,8 +216,8 @@ pub fn find_plugin_loader_tool() -> Option<String> {
     let exe = plugin_loader_exe();
     let mut try_paths: Vec<PathBuf> = Vec::new();
     if let Some(root) = find_project_root() {
-        try_paths.push(root.join("plugins").join(exe));
         try_paths.push(root.join("plugin-loader").join(exe));
+        try_paths.push(root.join("plugins").join(exe));
     }
     // 可执行文件相邻目录
     if let Some(exe_dir) = exe_dir() {
@@ -212,7 +228,9 @@ pub fn find_plugin_loader_tool() -> Option<String> {
     try_paths.push(PathBuf::from("plugin-loader").join(exe));
     try_paths.push(PathBuf::from("/usr/local/bin").join(exe));
     try_paths.push(PathBuf::from("/usr/bin").join(exe));
-    try_paths.iter().find(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned())
+    try_paths.iter().find(|p| {
+        p.is_file() && is_executable(p)
+    }).map(|p| p.to_string_lossy().into_owned())
 }
 
 pub fn ensure_plugin_loader_binary() -> bool {

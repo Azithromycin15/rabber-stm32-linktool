@@ -174,8 +174,12 @@ fn detect_device() {
 
 // ── 直调模式 ──
 
+/// 需要将首个参数作为文件路径传给 `--file` 的 action 名称
+const FILE_ACTIONS: &[&str] = &["flash", "verify", "compile", "strip"];
+
 /// 命令行直调模式: 通过 plugin-loader 直接执行插件命令
-fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str, extra_args: &[String]) {
+/// `plugin_cmd` 对应用户输入的插件命令名（manifest 中的 command 字段）
+fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &str, extra_args: &[String]) {
     let m = match mgr {
         Some(m) => m,
         None => {
@@ -184,17 +188,17 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str
         }
     };
 
-    let component = match m.find(plugin_id) {
+    let component = match m.find_by_command(plugin_cmd) {
         Some(c) => c,
         None => {
-            eprintln!("错误: 未知插件 '{}'", plugin_id);
+            eprintln!("错误: 未知插件 '{}'", plugin_cmd);
             std::process::exit(1);
         }
     };
 
-    if !m.has_action(plugin_id, command) {
-        eprintln!("错误: 插件 '{}' 不支持命令 '{}'", plugin_id, command);
-        m.help(plugin_id);
+    if !m.has_action(&component.id, command) {
+        eprintln!("错误: 插件 '{}' 不支持命令 '{}'", plugin_cmd, command);
+        m.help(&component.id);
         std::process::exit(1);
     }
 
@@ -206,6 +210,8 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str
         }
     };
 
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+
     let mut cmd = build_privileged_command(&loader);
     cmd.arg("--manifest")
         .arg(manifest_path().to_string_lossy().as_ref())
@@ -214,9 +220,14 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str
         .arg("--action")
         .arg(command);
 
-    if command == "flash" {
+    if FILE_ACTIONS.contains(&command) {
         if let Some(f) = extra_args.first() {
-            cmd.arg("--file").arg(f);
+            let resolved = if std::path::Path::new(f).is_relative() {
+                cwd.join(f)
+            } else {
+                std::path::PathBuf::from(f)
+            };
+            cmd.arg("--file").arg(resolved.to_string_lossy().as_ref());
             if extra_args.len() > 1 {
                 cmd.arg("--");
                 for a in &extra_args[1..] {
@@ -224,7 +235,7 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_id: &str, command: &str
                 }
             }
         } else {
-            eprintln!("错误: flash 需要文件路径");
+            eprintln!("错误: {} 需要文件路径", command);
             std::process::exit(1);
         }
     } else if !extra_args.is_empty() {
