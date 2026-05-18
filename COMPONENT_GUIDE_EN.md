@@ -1,4 +1,6 @@
-# 🧩 组件开发指南（英文） / Component Development Guide
+# 🧩 Component Development Guide
+
+> 🌐 Language: [中文](COMPONENT_GUIDE.md) | **English**
 
 ## 📋 Overview
 

@@ -4,10 +4,13 @@
 
 use colored::Colorize;
 use std::io::{self, Write};
+use crate::t;
+#[cfg_attr(not(target_os = "linux"), allow(unused_imports))]
+use crate::tfmt;
 
 /// 询问用户是否安装 stlink-tools
 pub fn prompt_install_stlink_tools() -> bool {
-    print!("{} ", "是否现在尝试安装 stlink-tools？[Y/n]".yellow());
+    print!("{} ", t!("是否现在尝试安装 stlink-tools？[Y/n]", "Try to install stlink-tools now? [Y/n]").yellow());
     io::stdout().flush().ok();
     let mut answer = String::new();
     if io::stdin().read_line(&mut answer).is_err() { return false; }
@@ -21,15 +24,17 @@ pub fn install_stlink_tools() -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        println!("{}", "Windows 请手动安装 ST-Link Utility:".cyan());
+        println!("{}", t!("Windows 请手动安装 ST-Link Utility:",
+            "Windows: Please manually install ST-Link Utility:").cyan());
         println!("  https://www.st.com/en/development-tools/stsw-link004.html");
-        println!("或使用 OpenOCD: https://openocd.org/");
+        println!("{}", t!("或使用 OpenOCD:", "Or use OpenOCD:").cyan());
+        println!("  https://openocd.org/");
         false
     }
 
     #[cfg(target_os = "macos")]
     {
-        println!("{}", "macOS 请使用 Homebrew:".cyan());
+        println!("{}", t!("macOS 请使用 Homebrew:", "macOS: Please use Homebrew:").cyan());
         println!("  brew install stlink");
         false
     }
@@ -54,7 +59,7 @@ fn linux_install() -> bool {
         } else if which::which("zypper").is_ok() {
             (Pkg::Zypper, "zypper", vec!["install", "-y", "stlink"])
         } else {
-            println!("{}", "无法识别包管理器。".red());
+            println!("{}", t!("无法识别包管理器。", "Cannot identify package manager.").red());
             return false;
         }
     };
@@ -62,10 +67,10 @@ fn linux_install() -> bool {
     let distro = std::fs::read_to_string("/etc/os-release").ok()
         .and_then(|s| s.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=")
             .map(|v| v.trim_matches('"').to_string())))
-        .unwrap_or_else(|| "未知发行版".into());
+        .unwrap_or_else(|| t!("未知发行版", "Unknown distribution").into());
 
     let pkg_name = match pkg { Pkg::Apt => "apt", Pkg::Pacman => "pacman", Pkg::Dnf => "dnf", Pkg::Zypper => "zypper" };
-    println!("{}", format!("系统: {}, 使用 {} 安装 stlink...", distro, pkg_name).cyan());
+    println!("{}", tfmt!("系统: {}, 使用 {} 安装 stlink...", "System: {}, using {} to install stlink...", distro, pkg_name).cyan());
 
     let mut install = if crate::utils::is_root() {
         Command::new(cmd)
@@ -75,8 +80,8 @@ fn linux_install() -> bool {
     install.args(&args);
 
     match install.status() {
-        Ok(s) if s.success() => { println!("{}", "安装成功".green()); true }
-        Ok(s) => { println!("{}", format!("安装失败, exit: {}", s.code().unwrap_or(-1)).red()); false }
-        Err(e) => { println!("{}", format!("无法启动安装: {}", e).red()); false }
+        Ok(s) if s.success() => { println!("{}", t!("安装成功", "Installation successful").green()); true }
+        Ok(s) => { println!("{}", tfmt!("安装失败, exit: {}", "Installation failed, exit: {}", s.code().unwrap_or(-1)).red()); false }
+        Err(e) => { println!("{}", tfmt!("无法启动安装: {}", "Cannot start installation: {}", e).red()); false }
     }
 }

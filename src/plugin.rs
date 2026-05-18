@@ -6,6 +6,8 @@ use colored::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use crate::t;
+use crate::tfmt;
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
@@ -71,7 +73,7 @@ impl PluginManager {
     pub fn ready(&self) -> bool { !self.manifest.components.is_empty() }
 
     pub fn list(&self) {
-        println!("{}", "[插件]".magenta());
+        println!("{}", format!("[{}]", t!("插件", "Plugins")).magenta());
         for c in &self.manifest.components {
             println!("  - {} ({}) : {}", c.name, c.id, c.description);
         }
@@ -109,16 +111,16 @@ impl PluginManager {
         let c = self.find_by_command(id).or_else(|| self.find(id));
         match c {
             Some(c) => {
-                println!("{}", format!("[插件 {}]", c.name).cyan());
+                println!("{}", format!("[{} {}]", t!("插件", "Plugin"), c.name).cyan());
                 match c.actions.as_ref().filter(|a| !a.is_empty()) {
                     Some(actions) => for a in actions {
                         println!("  {} {} {}", c.command, a.name, a.args.as_deref().unwrap_or(""));
                         println!("      {}", a.description);
                     },
-                    None => println!("  无可用命令"),
+                    None => println!("  {}", t!("无可用命令", "No available commands")),
                 }
             }
-            None => println!("{}", format!("未知插件: {}", id).red()),
+            None => println!("{}", tfmt!("未知插件: {}", "Unknown plugin: {}", id).red()),
         }
     }
 
@@ -140,7 +142,7 @@ impl PluginManager {
 
     pub fn help_all_plugins(&self) {
         if self.manifest.components.is_empty() {
-            println!("{}", "无可用插件".yellow());
+            println!("{}", t!("无可用插件", "No available plugins").yellow());
             return;
         }
         for c in &self.manifest.components {
@@ -153,7 +155,7 @@ impl PluginManager {
                         println!("      {}", a.description);
                     }
                 }
-                None => println!("  无可用命令"),
+                None => println!("  {}", t!("无可用命令", "No available commands")),
             }
             println!();
         }

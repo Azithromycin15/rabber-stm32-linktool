@@ -3,6 +3,7 @@
 //! 初始化 → 探测插件 → 检测工具链 → 交互 Shell
 
 mod cli;
+mod i18n;
 mod install;
 mod logger;
 mod output;
@@ -29,6 +30,7 @@ use utils::{
 };
 
 fn main() {
+    i18n::init_lang();
     let cli = parse_cli();
     set_project_root();
     init_logging();
@@ -57,57 +59,57 @@ fn set_project_root() {
 }
 
 fn init_logging() {
-    let path = init_logger().unwrap_or_else(|e| { eprintln!("日志初始化失败: {e}"); String::new() });
+    let path = init_logger().unwrap_or_else(|e| { eprintln!("{}: {e}", t!("日志初始化失败", "Log init failed")); String::new() });
     std::env::set_var("RABBER_LOG_FILE", &path);
-    println!("{}", format!("[日志] {path}").cyan());
-    log_info(&format!("启动, 日志: {path}"));
+    println!("{}", format!("[{}] {path}", t!("日志", "Log")).cyan());
+    log_info(&format!("{} {}", t!("启动, 日志:", "Startup, log:"), path));
 }
 
 fn check_env() {
     let v = cargo_package_version();
     print_banner(&v);
     if !prepare_runtime_environment() {
-        println!("{}", "[!] 环境不完整".yellow());
-        log_warn("环境不完整");
+        println!("{}", t!("[!] 环境不完整", "[!] Environment incomplete").yellow());
+        log_warn(t!("环境不完整", "Environment incomplete"));
     }
     print_environment_summary();
     if !is_project_root() {
         if let Some(r) = find_project_root() {
-            println!("{}", format!("[!] 非仓库根目录, 已定位: {}", r.display()).yellow());
+            println!("{}", tfmt!("[!] 非仓库根目录, 已定位: {}", "[!] Not at repo root, located: {}", r.display()).yellow());
         }
     }
     if !ensure_plugin_loader_binary() {
-        println!("{}", "[!] plugin-loader 不可用".yellow());
-        log_warn("plugin-loader 未找到");
+        println!("{}", t!("[!] plugin-loader 不可用", "[!] plugin-loader unavailable").yellow());
+        log_warn(t!("plugin-loader 未找到", "plugin-loader not found"));
     }
 }
 
 // ── 插件探测 ──
 
 fn probe() -> (Option<PluginManager>, Option<String>) {
-    println!("{}", "[*] 探测插件...".cyan());
+    println!("{}", t!("[*] 探测插件...", "[*] Probing plugins...").cyan());
     let t0 = std::time::Instant::now();
     let mgr = PluginManager::probe_and_generate_manifest(&plugin_dir(), &manifest_path());
     let ms = t0.elapsed().as_millis();
     match mgr {
         Some(mgr) => {
             let dls = mgr.download_components();
-            println!("{}", format!("[✓] {} 个组件, {} 个下载器, {} ms", mgr.count(), dls.len(), ms).green());
-            if dls.is_empty() { println!("{}", "[!] 无下载插件".yellow()); }
-            if mgr.ready() { mgr.list(); } else { println!("{}", "[!] 无可用组件".yellow()); }
+            println!("{}", tfmt!("[✓] {} 个组件, {} 个下载器, {} ms", "[✓] {} components, {} downloaders, {} ms", mgr.count(), dls.len(), ms).green());
+            if dls.is_empty() { println!("{}", t!("[!] 无下载插件", "[!] No download plugins").yellow()); }
+            if mgr.ready() { mgr.list(); } else { println!("{}", t!("[!] 无可用组件", "[!] No available components").yellow()); }
 
             let st = check_stlink_tools_installed();
             let oc = check_openocd_installed();
-            println!("{}", "[依赖]".cyan());
+            println!("{}", format!("[{}]", t!("依赖", "Dependencies")).cyan());
             println!("  ST-Link: {}", if st { "✓" } else { "✗" });
             println!("  OpenOCD: {}", if oc { "✓" } else { "✗" });
 
             let dl = choose_downloader(&dls, st, oc);
-            if let Some(ref id) = dl { println!("{}", format!("[✓] 默认下载器: {id}").green()); }
+            if let Some(ref id) = dl { println!("{}", tfmt!("[✓] 默认下载器: {}", "[✓] Default downloader: {}", id).green()); }
             (Some(mgr), dl)
         }
         None => {
-            println!("{}", "[✗] 插件探测失败".red());
+            println!("{}", t!("[✗] 插件探测失败", "[✗] Plugin probe failed").red());
             (None, None)
         }
     }
@@ -117,7 +119,7 @@ fn choose_downloader(dls: &[&plugin::ComponentInfo], st: bool, oc: bool) -> Opti
     let stlink = dls.iter().find(|c| c.id == "stlink_v2");
     let cmsis = dls.iter().find(|c| c.id == "cmsis_dap");
     if st && oc && dls.len() > 1 {
-        println!("{}", "选择默认下载器:".cyan());
+        println!("{}", t!("选择默认下载器:", "Select default downloader:").cyan());
         for (i, p) in dls.iter().enumerate() { println!("  {}. {} ({})", i + 1, p.name, p.id); }
         let mut input = String::new();
         io::stdin().read_line(&mut input).ok();
@@ -137,16 +139,16 @@ fn check_perms() {
 }
 
 fn check_tools() -> bool {
-    print!("{}", "[*] ST-Link 工具链...".cyan());
+    print!("{}", t!("[*] ST-Link 工具链...", "[*] ST-Link toolchain...").cyan());
     io::stdout().flush().ok();
     if check_stlink_tools_installed() { println!(" {}", "✓"); return true; }
     println!(" {}", "✗".red());
-    if !prompt_install_stlink_tools() { println!("{}", "已取消".yellow()); return false; }
+    if !prompt_install_stlink_tools() { println!("{}", t!("已取消", "Cancelled").yellow()); return false; }
     if install_stlink_tools() && check_stlink_tools_installed() {
-        println!("{}", "[✓] 已安装".green());
+        println!("{}", t!("[✓] 已安装", "[✓] Installed").green());
         true
     } else {
-        println!("{}", "[✗] 安装失败".red());
+        println!("{}", t!("[✗] 安装失败", "[✗] Installation failed").red());
         false
     }
 }
@@ -154,21 +156,21 @@ fn check_tools() -> bool {
 // ── 设备检测 ──
 
 fn detect_device() {
-    print!("{}", "[*] USB 扫描...".cyan());
+    print!("{}", t!("[*] USB 扫描...", "[*] USB scan...").cyan());
     io::stdout().flush().ok();
     if detect_stlink_by_usb() {
-        println!(" {}", "检测到设备".green());
+        println!(" {}", t!("检测到设备", "Device detected").green());
         print_stlink_info(&get_stlink_info());
         let mcu = get_mcu_info_via_swd();
         if !mcu.chip_id.is_empty() { print_mcu_info(&mcu); }
     } else {
-        println!(" {}", "无设备".red());
+        println!(" {}", t!("无设备", "No device").red());
         #[cfg(target_os = "linux")] {
-            println!("{}", "[!] 尝试 lsusb...".yellow());
+            println!("{}", t!("[!] 尝试 lsusb...", "[!] Trying lsusb...").yellow());
             let _ = std::process::Command::new("sh").arg("-c").arg("lsusb|grep -i stm").status();
         }
-        #[cfg(target_os = "windows")] println!("{}", "[!] 检查设备管理器".yellow());
-        #[cfg(target_os = "macos")] println!("{}", "[!] system_profiler SPUSBDataType".yellow());
+        #[cfg(target_os = "windows")] println!("{}", t!("[!] 检查设备管理器", "[!] Check Device Manager").yellow());
+        #[cfg(target_os = "macos")] println!("{}", t!("[!] system_profiler SPUSBDataType", "[!] system_profiler SPUSBDataType").yellow());
     }
 }
 
@@ -183,7 +185,7 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &st
     let m = match mgr {
         Some(m) => m,
         None => {
-            eprintln!("错误: 插件管理器不可用");
+            eprintln!("{}: {}", t!("错误", "Error"), t!("插件管理器不可用", "Plugin manager unavailable"));
             std::process::exit(1);
         }
     };
@@ -191,13 +193,13 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &st
     let component = match m.find_by_command(plugin_cmd) {
         Some(c) => c,
         None => {
-            eprintln!("错误: 未知插件 '{}'", plugin_cmd);
+            eprintln!("{}: {}", t!("未知插件", "Unknown plugin"), plugin_cmd);
             std::process::exit(1);
         }
     };
 
     if !m.has_action(&component.id, command) {
-        eprintln!("错误: 插件 '{}' 不支持命令 '{}'", plugin_cmd, command);
+        eprintln!("{}: {} '{}' {}", t!("插件", "Plugin"), plugin_cmd, t!("不支持命令", "does not support command"), command);
         m.help(&component.id);
         std::process::exit(1);
     }
@@ -205,7 +207,7 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &st
     let loader = match find_plugin_loader_tool() {
         Some(p) => p,
         None => {
-            eprintln!("错误: plugin-loader 未找到");
+            eprintln!("{}: {}", t!("错误", "Error"), t!("plugin-loader 未找到", "plugin-loader not found"));
             std::process::exit(1);
         }
     };
@@ -235,7 +237,7 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &st
                 }
             }
         } else {
-            eprintln!("错误: {} 需要文件路径", command);
+            eprintln!("{}: {}", t!("错误", "Error"), tfmt!("{} 需要文件路径", "{} requires a file path", command));
             std::process::exit(1);
         }
     } else if !extra_args.is_empty() {
@@ -249,7 +251,7 @@ fn direct_plugin_run(mgr: Option<&PluginManager>, plugin_cmd: &str, command: &st
         Ok(s) if s.success() => {}
         Ok(s) => std::process::exit(s.code().unwrap_or(1)),
         Err(e) => {
-            eprintln!("错误: {}", e);
+            eprintln!("{}: {}", t!("错误", "Error"), e);
             std::process::exit(1);
         }
     }

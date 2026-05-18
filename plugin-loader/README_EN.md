@@ -1,4 +1,6 @@
-# 🔧 Plugin Loader (English)
+# 🔧 Plugin Loader
+
+> 🌐 Language: [中文](README.md) | **English**
 
 `plugin-loader/main.go` is the Go component loader for this project. It reads `plugins/manifest.yaml` and invokes the corresponding Python components.
 

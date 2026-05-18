@@ -1,5 +1,7 @@
 # 🔌 Plugins
 
+> 🌐 语言：**中文** | [English](README_EN.md)
+
 `plugins/` 目录存放插件组件定义与清单。
 
 ## 📂 结构

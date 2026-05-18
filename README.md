@@ -1,5 +1,7 @@
 # 🚀 rabber-stm32-linktool
 
+> 🌐 语言：**中文** | [English](README_EN.md)
+>
 > 基于 Rust 构建的 ST-Link V2 MCU 信息读取与固件烧录工具
 
 ## ✨ 特性

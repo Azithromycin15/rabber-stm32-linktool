@@ -1,4 +1,6 @@
-# 🎛️ ST-Link V2 Plugin (English)
+# 🎛️ ST-Link V2 Plugin
+
+> 🌐 Language: [中文](README.md) | **English**
 
 ST-Link V2 debugger plugin for STM32 SWD flashing and MCU information.
 

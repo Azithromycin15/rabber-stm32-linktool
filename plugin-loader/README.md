@@ -1,5 +1,7 @@
 # 🔧 Plugin Loader
 
+> 🌐 语言：**中文** | [English](README_EN.md)
+
 `plugin-loader/main.go` 是本项目的 Go 组件加载器，负责读取 `plugins/manifest.yaml` 并调用对应的 Python 组件。
 
 ## 🏗️ 编译

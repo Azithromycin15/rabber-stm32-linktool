@@ -4,6 +4,8 @@
 
 use colored::Colorize;
 use crate::logger::warn as log_warn;
+use crate::t;
+use crate::tfmt;
 use std::env;
 use std::fs;
 use std::io;
@@ -246,7 +248,7 @@ pub fn ensure_plugin_loader_binary() -> bool {
             if prebuilt.is_file() {
                 let _ = fs::create_dir_all(&dir);
                 if fs::copy(&prebuilt, &out).is_ok() {
-                    println!("{}", format!("[✓] plugin-loader 已复制 (来自 {}): {}", src_dir, out.display()).green());
+                    println!("{}", tfmt!("[✓] plugin-loader 已复制 (来自 {}): {}", "[✓] plugin-loader copied (from {}): {}", src_dir, out.display()).green());
                     return true;
                 }
             }
@@ -258,7 +260,7 @@ pub fn ensure_plugin_loader_binary() -> bool {
         .current_dir(&dir).status()
         .map(|s| s.success() && out.is_file()).unwrap_or(false);
     if ok {
-        println!("{}", format!("[✓] plugin-loader 构建成功: {}", out.display()).green());
+        println!("{}", tfmt!("[✓] plugin-loader 构建成功: {}", "[✓] plugin-loader built successfully: {}", out.display()).green());
     }
     ok
 }
@@ -320,10 +322,10 @@ fn ensure_plugin_loader_source() -> bool {
         let ok = Command::new("git").args(["clone", "--depth", "1", select_loader_repo()])
             .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
         if ok {
-            println!("{}", format!("[✓] plugin-loader 源码已克隆: {}", dir.display()).green());
+            println!("{}", tfmt!("[✓] plugin-loader 源码已克隆: {}", "[✓] plugin-loader source cloned: {}", dir.display()).green());
             return true;
         }
-        log_warn("git clone plugin-loader 失败, 尝试本地回退...");
+        log_warn(t!("git clone plugin-loader 失败, 尝试本地回退...", "git clone plugin-loader failed, trying local fallback..."));
     }
 
     // 回退：从项目根目录复制本地源码
@@ -332,7 +334,7 @@ fn ensure_plugin_loader_source() -> bool {
         if src.join("main.go").is_file() {
             let _ = fs::create_dir_all(dir.parent().unwrap_or(Path::new(".")));
             if copy_dir_all(&src, &dir).is_ok() && dir.join("main.go").is_file() {
-                println!("{}", format!("[✓] plugin-loader 源码已复制 (本地回退): {}", dir.display()).green());
+                println!("{}", tfmt!("[✓] plugin-loader 源码已复制 (本地回退): {}", "[✓] plugin-loader source copied (local fallback): {}", dir.display()).green());
                 return true;
             }
         }
@@ -353,10 +355,10 @@ fn ensure_plugins_downloaded() -> bool {
         let ok = Command::new("git").args(["clone", "--depth", "1", select_plugins_repo()])
             .arg(&dir).status().map(|s| s.success()).unwrap_or(false);
         if ok {
-            println!("{}", format!("[✓] 插件已克隆: {}", dir.display()).green());
+            println!("{}", tfmt!("[✓] 插件已克隆: {}", "[✓] Plugins cloned: {}", dir.display()).green());
             return dir.join("manifest.yaml").is_file();
         }
-        log_warn("git clone 插件失败, 尝试本地回退...");
+        log_warn(t!("git clone 插件失败, 尝试本地回退...", "git clone plugins failed, trying local fallback..."));
     }
 
     // 回退：从项目根目录复制本地 plugins
@@ -365,7 +367,7 @@ fn ensure_plugins_downloaded() -> bool {
         if src.join("manifest.yaml").is_file() {
             let _ = fs::create_dir_all(dir.parent().unwrap_or(Path::new(".")));
             if copy_dir_all(&src, &dir).is_ok() && dir.join("manifest.yaml").is_file() {
-                println!("{}", format!("[✓] 插件已复制 (本地回退): {}", dir.display()).green());
+                println!("{}", tfmt!("[✓] 插件已复制 (本地回退): {}", "[✓] Plugins copied (local fallback): {}", dir.display()).green());
                 return true;
             }
         }
@@ -405,19 +407,19 @@ pub fn prepare_runtime_environment() -> bool {
     let mut ok = true;
     let _ = fs::create_dir_all(&logs_dir());
     if !check_go_installed() {
-        log_warn("Go 未检测到 (将尝试使用预编译 plugin-loader)");
+        log_warn(t!("Go 未检测到 (将尝试使用预编译 plugin-loader)", "Go not detected (will try prebuilt plugin-loader)"));
         if let Some(s) = create_go_install_script() {
-            println!("{}", format!("[!] Go 安装脚本已创建: {}", s.display()).yellow());
+            println!("{}", tfmt!("[!] Go 安装脚本已创建: {}", "[!] Go install script created: {}", s.display()).yellow());
         }
     }
     if !ensure_plugin_loader_source() {
-        log_warn("plugin-loader 源码未准备好");
+        log_warn(t!("plugin-loader 源码未准备好", "plugin-loader source not ready"));
         ok = false;
     }
-    if !ensure_plugins_downloaded() { log_warn("插件下载失败"); ok = false; }
+    if !ensure_plugins_downloaded() { log_warn(t!("插件下载失败", "Plugin download failed")); ok = false; }
     // 始终尝试获取/构建 plugin-loader（支持预编译二进制回退）
     if !ensure_plugin_loader_binary() {
-        log_warn("plugin-loader 不可用");
+        log_warn(t!("plugin-loader 不可用", "plugin-loader unavailable"));
         ok = false;
     }
     ok
@@ -428,9 +430,9 @@ pub fn is_project_root() -> bool {
 }
 
 pub fn print_environment_summary() {
-    println!("{}", "[环境摘要]".cyan());
+    println!("{}", format!("[{}]", t!("环境摘要", "Environment Summary")).cyan());
     println!("  OS:          {}", std::env::consts::OS);
-    if let Some(r) = find_project_root() { println!("  Project:     {}", r.display()); }
+    if let Some(r) = find_project_root() { println!("  {}:     {}", t!("项目", "Project"), r.display()); }
     println!("  Go:          {}", if check_go_installed() { "✓" } else { "✗" });
     println!("  ST-Link:     {}", if check_stlink_tools_installed() { "✓" } else { "✗" });
     println!("  OpenOCD:     {}", if check_openocd_installed() { "✓" } else { "✗" });

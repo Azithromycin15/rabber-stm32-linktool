@@ -1,4 +1,6 @@
-# 🔌 Plugins (English)
+# 🔌 Plugins
+
+> 🌐 Language: [中文](README.md) | **English**
 
 The `plugins/` directory contains plugin component definitions and manifest.
 

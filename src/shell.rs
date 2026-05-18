@@ -17,6 +17,8 @@ use rustyline::{Context, Editor, Helper};
 use crate::output::{show_help, show_command_help};
 use crate::plugin::{ComponentInfo, PluginManager};
 use crate::stlink::get_mcu_info_via_swd;
+use crate::t;
+use crate::tfmt;
 use crate::utils::{build_privileged_command, find_plugin_loader_tool, manifest_path, plugin_dir};
 
 // ── Shell Helper: Tab 补全 + 路径缩写 + 输入校验 ──
@@ -150,8 +152,6 @@ fn glob_paths(word: &str, dirs_only: bool) -> Vec<Pair> {
                     continue;
                 }
                 let display = if is_dir { format!("{}/", name_str) } else { name_str.to_string() };
-
-                // 构建替换用的完整路径
                 let replacement = if word.is_empty() || word.ends_with('/') {
                     format!("{}{}", word, display)
                 } else if let Some(parent) = path.parent() {
@@ -218,7 +218,7 @@ impl Helper for ShellHelper {}
 pub fn interactive_mode(plugin_manager: &mut Option<PluginManager>, default_downloader: Option<String>) {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let helper = ShellHelper::new(plugin_manager.as_ref(), &cwd);
-    let mut rl = Editor::new().expect("无法初始化编辑器");
+    let mut rl = Editor::new().expect(t!("无法初始化编辑器", "Failed to initialize editor"));
     rl.set_helper(Some(helper));
     let _ = rl.load_history("rabber_history.txt");
 
@@ -237,24 +237,23 @@ pub fn interactive_mode(plugin_manager: &mut Option<PluginManager>, default_down
                         Ok(()) => {
                             cwd = d;
                             crate::logger::info(&format!("cd → {}", cwd.display()));
-                            // 更新 helper 中的 cwd
                             if let Some(h) = rl.helper_mut() {
                                 h.cwd = cwd.clone();
                             }
                         }
-                        Err(e) => println!("{}", format!("cd 失败: {}", e).red()),
+                        Err(e) => println!("{}", format!("{}: {}", t!("cd 失败", "cd failed"), e).red()),
                     }
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                println!("^C (再按一次 Ctrl-C 或输入 exit 退出)");
+                println!("{}", t!("^C (再按一次 Ctrl-C 或输入 exit 退出)", "^C (press again or type exit to quit)"));
             }
             Err(ReadlineError::Eof) => {
-                println!("退出。");
+                println!("{}", t!("退出。", "Goodbye."));
                 break;
             }
             Err(e) => {
-                println!("读取错误: {}", e);
+                println!("{}: {}", t!("读取错误", "Read error"), e);
                 break;
             }
         }
@@ -272,7 +271,6 @@ fn format_prompt(cwd: &Path) -> String {
         _ => cwd.display().to_string(),
     };
 
-    // 如果路径过长，仅显示最后两级
     let short = if display.len() > 50 && !display.starts_with('/') {
         let parts: Vec<&str> = display.split('/').collect();
         if parts.len() > 3 {
@@ -294,7 +292,7 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
 
     match cmd {
         "exit" | "quit" => {
-            println!("再见 👋");
+            println!("{}", t!("再见 👋", "Goodbye 👋"));
             std::process::exit(0);
         }
         "clear" => {
@@ -310,7 +308,7 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                 if arg == "plugin" {
                     mgr.as_ref()
                         .map(|m| m.help_all_plugins())
-                        .unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+                        .unwrap_or_else(|| println!("{}", t!("未加载插件清单。", "Plugin manifest not loaded.").yellow()));
                 } else {
                     show_command_help(arg, mgr.as_ref());
                 }
@@ -331,7 +329,7 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
             {
                 Ok(c) => c,
                 Err(e) => {
-                    println!("{}", format!("执行 ls 失败: {}", e).red());
+                    println!("{}", format!("{}: {}", t!("执行 ls 失败", "ls failed"), e).red());
                     return None;
                 }
             };
@@ -344,7 +342,7 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
             if !info.chip_id.is_empty() {
                 crate::output::print_mcu_info(&info);
             } else {
-                println!("{}", "无法获取 MCU 信息。请确认 ST-Link 已连接。".red());
+                println!("{}", t!("无法获取 MCU 信息。请确认 ST-Link 已连接。", "Cannot get MCU info. Please confirm ST-Link is connected.").red());
             }
             return None;
         }
@@ -364,10 +362,10 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                         Some(new_mgr) => {
                             *mgr = Some(new_mgr);
                             let count = mgr.as_ref().map(|m| m.count()).unwrap_or(0);
-                            println!("{}", format!("插件列表已热加载 (discover), {} 个组件", count).green());
+                            println!("{}", tfmt!("插件列表已热加载 (discover), {} 个组件", "Plugin list hot-reloaded (discover), {} components", count).green());
                             mgr.as_ref().map(|m| m.list());
                         }
-                        None => println!("{}", "无法加载 manifest.yaml".red()),
+                        None => println!("{}", t!("无法加载 manifest.yaml", "Cannot load manifest.yaml").red()),
                     }
                 }
                 Some("refresh") | Some("-r") => {
@@ -377,19 +375,19 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                         Some(new_mgr) => {
                             *mgr = Some(new_mgr);
                             let count = mgr.as_ref().map(|m| m.count()).unwrap_or(0);
-                            println!("{}", format!("插件已重新探测并刷新 (refresh), {} 个组件", count).green());
+                            println!("{}", tfmt!("插件已重新探测并刷新 (refresh), {} 个组件", "Plugins re-probed and refreshed (refresh), {} components", count).green());
                             mgr.as_ref().map(|m| m.list());
                         }
-                        None => println!("{}", "重新探测插件失败".red()),
+                        None => println!("{}", t!("重新探测插件失败", "Re-probe plugins failed").red()),
                     }
                 }
                 Some("list") | Some("-l") | Some("help") => {
                     mgr.as_ref()
                         .map(|m| m.help_all_plugins())
-                        .unwrap_or_else(|| println!("{}", "未加载插件清单。".yellow()));
+                        .unwrap_or_else(|| println!("{}", t!("未加载插件清单。", "Plugin manifest not loaded.").yellow()));
                 }
                 _ => {
-                    println!("{}", "用法: plugin list|discover|refresh|help".yellow());
+                    println!("{}", t!("用法: plugin list|discover|refresh|help", "Usage: plugin list|discover|refresh|help").yellow());
                 }
             }
             return None;
@@ -404,22 +402,22 @@ fn dispatch(line: &str, mgr: &mut Option<PluginManager>, dl: Option<&str>, cwd: 
                             return None;
                         }
                         if !m.has_action(cid, act) {
-                            println!("{}", format!("插件 '{}' 不支持 '{}'", pid, act).red());
+                            println!("{}", tfmt!("插件 '{}' 不支持 '{}'", "Plugin '{}' does not support '{}'", pid, act).red());
                             m.help(cid);
                             return None;
                         }
                         let args: Vec<String> = parts.map(|s| s.to_string()).collect();
                         return run_plugin(c, act, &args, cwd);
                     } else {
-                        println!("{}", "用法: <插件ID> <命令> [选项]".yellow());
+                        println!("{}", t!("用法: <插件ID> <命令> [选项]", "Usage: <pluginID> <command> [options]").yellow());
                         m.help(cid);
                     }
                 } else {
                     suggest_command(cmd, mgr.as_ref());
                 }
             } else {
-                println!("{}: {}", "未知命令".red(), cmd);
-                println!("输入 'help' 查看可用命令。");
+                println!("{}: {}", t!("未知命令", "Unknown command").red(), cmd);
+                println!("{} 'help' {}。", t!("输入", "Type"), t!("查看可用命令", "to see available commands"));
             }
         }
     }
@@ -469,13 +467,13 @@ fn suggest_command(input: &str, mgr: Option<&PluginManager>) {
         }
     }
 
-    println!("{}: {}", "未知命令".red().bold(), input.yellow());
+    println!("{}: {}", t!("未知命令", "Unknown command").red().bold(), input.yellow());
     match best {
         Some((suggestion, _)) => {
-            println!("  你想输入的是 '{}' 吗？", suggestion.green().bold());
+            println!("  {} '{}' {}？", t!("你想输入的是", "Did you mean"), suggestion.green().bold(), t!("吗", ""));
         }
         None => {
-            println!("  输入 '{}' 查看可用命令。", "help".cyan());
+            println!("  {} '{}' {}。", t!("输入", "Type"), "help".cyan(), t!("查看可用命令", "to see available commands"));
         }
     }
 }
@@ -495,7 +493,7 @@ fn cd(mut parts: std::str::SplitWhitespace, cwd: &PathBuf) -> Option<PathBuf> {
     match target.canonicalize() {
         Ok(p) => Some(p),
         Err(_) => {
-            println!("{}", format!("目录不存在: {}", target.display()).red());
+            println!("{}", format!("{}: {}", t!("目录不存在", "Directory not found"), target.display()).red());
             None
         }
     }
@@ -507,31 +505,31 @@ fn flash(mut parts: std::str::SplitWhitespace, mgr: Option<&PluginManager>, dl: 
     let file = match parts.next() {
         Some(f) => f,
         None => {
-            println!("{}", "用法: flash <文件路径>".red());
-            println!("  示例: flash firmware.hex");
+            println!("{}", t!("用法: flash <文件路径>", "Usage: flash <file path>").red());
+            println!("  {}: flash firmware.hex", t!("示例", "Example"));
             return;
         }
     };
     let m = match mgr {
         Some(m) => m,
-        None => { println!("{}", "插件管理器不可用。".red()); return; }
+        None => { println!("{}", t!("插件管理器不可用。", "Plugin manager unavailable.").red()); return; }
     };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
     match c {
         Some(c) => { run_plugin(c, "flash", &[file.into()], cwd); }
-        None => println!("{}", "未找到下载器。".red()),
+        None => println!("{}", t!("未找到下载器。", "No downloader found.").red()),
     }
 }
 
 fn reset(mgr: Option<&PluginManager>, dl: Option<&str>, cwd: &Path) {
     let m = match mgr {
         Some(m) => m,
-        None => { println!("{}", "插件管理器不可用。".red()); return; }
+        None => { println!("{}", t!("插件管理器不可用。", "Plugin manager unavailable.").red()); return; }
     };
     let c = dl.and_then(|id| m.find(id)).or_else(|| m.default_downloader());
     match c {
         Some(c) => { run_plugin(c, "reset", &[], cwd); }
-        None => println!("{}", "未找到下载器。".red()),
+        None => println!("{}", t!("未找到下载器。", "No downloader found.").red()),
     }
 }
 
@@ -542,7 +540,7 @@ const FILE_ACTION_NAMES: &[&str] = &["flash", "verify", "compile", "strip"];
 fn run_plugin(component: &ComponentInfo, action: &str, args: &[String], cwd: &Path) -> Option<PathBuf> {
     let loader = match find_plugin_loader_tool() {
         Some(p) => p,
-        None => { println!("{}", "plugin-loader 未找到".red()); return None; }
+        None => { println!("{}", t!("plugin-loader 未找到", "plugin-loader not found").red()); return None; }
     };
     let mut cmd = build_privileged_command(&loader);
     cmd.arg("--manifest")
@@ -561,7 +559,7 @@ fn run_plugin(component: &ComponentInfo, action: &str, args: &[String], cwd: &Pa
                 for a in &args[1..] { cmd.arg(a); }
             }
         } else {
-            println!("{}", format!("{} 需要文件路径", action).red());
+            println!("{}", tfmt!("{} 需要文件路径", "{} requires a file path", action).red());
             return None;
         }
     } else if !args.is_empty() {
@@ -569,7 +567,7 @@ fn run_plugin(component: &ComponentInfo, action: &str, args: &[String], cwd: &Pa
         for a in args { cmd.arg(a); }
     }
 
-    println!("{}", format!("执行 {} {}...", component.id, action).cyan());
+    println!("{}", tfmt!("执行 {} {}...", "Running {} {}...", component.id, action).cyan());
     match cmd.output() {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -584,14 +582,14 @@ fn run_plugin(component: &ComponentInfo, action: &str, args: &[String], cwd: &Pa
                 }
             }
             if output.status.success() {
-                println!("{}", "✓ 完成".green().bold());
+                println!("{}", t!("✓ 完成", "✓ Done").green().bold());
             } else {
-                println!("{} (退出码: {})", "✗ 失败".red().bold(), output.status.code().unwrap_or(-1));
+                println!("{} ({}{})", t!("✗ 失败", "✗ Failed").red().bold(), t!("退出码: ", "exit code: "), output.status.code().unwrap_or(-1));
             }
             cd_target
         }
         Err(e) => {
-            println!("{}", format!("错误: {}", e).red());
+            println!("{}: {}", t!("错误", "Error").red(), e);
             None
         }
     }

@@ -1,5 +1,7 @@
 # 🚀 rabber-stm32-linktool
 
+> 🌐 Language: [中文](README.md) | **English**
+>
 > Rust-based ST-Link V2 MCU information reader and firmware flasher
 
 ## ✨ Features

@@ -1,5 +1,7 @@
 # 🎛️ ST-Link V2 插件
 
+> 🌐 语言：**中文** | [English](README_EN.md)
+
 ST-Link V2 调试器插件，用于 STM32 的 SWD 烧录与信息查询。
 
 ## 📂 目录结构

@@ -1,5 +1,7 @@
 # 🧩 组件开发指南 / Component Development Guide
 
+> 🌐 语言：**中文** | [English](COMPONENT_GUIDE_EN.md)
+
 ## 📋 概述
 
 本项目采用 **Rust 框架核心 + Go 组件加载器 + Python 组件实现** 的架构，每个组件还需包含 JavaScript 元数据描述。
