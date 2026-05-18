@@ -86,6 +86,72 @@ class CMSISDAPDownloader:
             print(f"文件不存在: {file_path}", file=sys.stderr)
             return False
 
+        # 检查当前目录是否有 openocd.cfg，有则优先使用 OpenOCD 刷写
+        openocd_cfg = os.path.join(os.getcwd(), "openocd.cfg")
+        if os.path.isfile(openocd_cfg):
+            return self._flash_openocd(file_path, start_address, verify, openocd_cfg)
+
+        actual_file = file_path
+        cleanup_temp = False
+        if file_path.lower().endswith(".elf"):
+            stripped = self.strip(file_path)
+            if stripped is None:
+                return False
+            actual_file = stripped
+            cleanup_temp = True
+
+        args = [self.pyocd_cmd, "flash", actual_file]
+        if start_address != 0x08000000:
+            args.extend(["--address", f"0x{start_address:08X}"])
+
+        code, _ = self.run_command(args)
+        if code != 0:
+            if cleanup_temp:
+                os.remove(actual_file)
+            return False
+
+        reset_ok = self.reset()
+        if not reset_ok:
+            if cleanup_temp:
+                os.remove(actual_file)
+            return False
+
+        if verify:
+            success = self.verify(actual_file, start_address)
+        else:
+            success = True
+
+        if cleanup_temp:
+            os.remove(actual_file)
+
+        return success
+
+    def _flash_openocd(self, file_path, start_address, verify, cfg_path):
+        """使用 OpenOCD 进行刷写（CMSIS-DAP 接口）"""
+        openocd_cmd = self._find_command("openocd")
+        if not self._command_exists(openocd_cmd):
+            print("openocd 未安装，回退到 pyocd 刷写", file=sys.stderr)
+            # 回退到 pyocd（递归调用 flash 但此时不会再次检测 openocd.cfg）
+            return self._flash_pyocd(file_path, start_address, verify)
+
+        addr_str = f"0x{start_address:08X}" if start_address != 0x08000000 else "0x08000000"
+        verify_cmd = " verify" if verify else ""
+        openocd_args = [
+            openocd_cmd, "-f", cfg_path,
+            "-c", f"program {file_path} {addr_str}{verify_cmd} reset exit"
+        ]
+
+        print(f"[*] 使用 OpenOCD (CMSIS-DAP) 刷写: {cfg_path}")
+        code, _ = self.run_command(openocd_args)
+        if code != 0:
+            print("OpenOCD 刷写失败", file=sys.stderr)
+            return False
+
+        print("OpenOCD 刷写完成")
+        return True
+
+    def _flash_pyocd(self, file_path, start_address, verify):
+        """使用 pyOCD 刷写（内部回退）"""
         actual_file = file_path
         cleanup_temp = False
         if file_path.lower().endswith(".elf"):

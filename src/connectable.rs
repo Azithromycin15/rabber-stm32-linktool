@@ -1,6 +1,6 @@
-//! # ST-Link 设备与 MCU 信息
+//! # 可连接设备与 MCU 信息
 //!
-//! USB 设备检测、ST-Link 信息获取、SWD 读取 MCU 信息。
+//! USB 设备检测（ST-Link / CMSIS-DAP）、设备信息获取、SWD 读取 MCU 信息。
 
 use crate::plugin::PluginManager;
 use crate::utils::execute_command;
@@ -66,6 +66,34 @@ pub fn detect_stlink_by_usb() -> bool {
     {
         let o = execute_command("system_profiler", &["SPUSBDataType"]);
         o.status == 0 && o.stdout.contains("STMicroelectronics")
+    }
+}
+
+/// 检测 CMSIS-DAP 设备（DAPLink / pyOCD 兼容调试器）
+pub fn detect_dap_by_usb() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let vid: u16 = 0x0d28; // ARM/NXP mbed DAPLink
+        fs::read_dir("/sys/bus/usb/devices/")
+            .ok().into_iter().flat_map(|d| d.flatten())
+            .filter(|e| e.file_name().to_string_lossy().chars().next().map_or(false, |c| c != '.'))
+            .filter_map(|e| {
+                let p = e.path();
+                let v = parse_hex(&fs::read_to_string(p.join("idVendor")).ok()?)?;
+                Some(v)
+            })
+            .any(|v| v == vid)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let o = execute_command("powershell", &["-Command",
+            "Get-PnpDevice | Where-Object { $_.InstanceId -like '*USB*' -and ($_.DeviceID -like '*0D28*' -or $_.DeviceID -like '*DAPLINK*' -or $_.DeviceID -like '*CMSIS-DAP*') } | Select-Object -First 1"]);
+        o.status == 0 && !o.stdout.trim().is_empty()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let o = execute_command("system_profiler", &["SPUSBDataType"]);
+        o.status == 0 && (o.stdout.contains("DAPLink") || o.stdout.contains("CMSIS-DAP") || o.stdout.contains("mbed"))
     }
 }
 

@@ -9,7 +9,7 @@ mod logger;
 mod output;
 mod plugin;
 mod shell;
-mod stlink;
+mod connectable;
 mod utils;
 
 use colored::*;
@@ -21,7 +21,7 @@ use logger::{info as log_info, init_logger, warn as log_warn};
 use output::{print_banner, print_mcu_info, print_stlink_info};
 use plugin::PluginManager;
 use shell::interactive_mode;
-use stlink::{detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
+use connectable::{detect_dap_by_usb, detect_stlink_by_usb, get_mcu_info_via_swd, get_stlink_info};
 use utils::{
     build_privileged_command, cargo_package_version, check_openocd_installed,
     check_stlink_tools_installed, ensure_plugin_loader_binary, find_project_root,
@@ -38,7 +38,7 @@ fn main() {
     let (mut mgr, dl) = probe();
     check_perms();
     if !check_tools() { return; }
-    detect_device();
+    detect_device(dl.as_deref());
 
     // 直调模式: rabber <插件ID> <命令> [参数...]
     if let Some((pid, cmd, extra_args)) = cli {
@@ -75,11 +75,10 @@ fn check_env() {
     print_environment_summary();
     if !is_project_root() {
         if let Some(r) = find_project_root() {
-            println!("{}", tfmt!("[!] 非仓库根目录, 已定位: {}", "[!] Not at repo root, located: {}", r.display()).yellow());
+            log_warn(&format!("非仓库根目录, 已定位: {}", r.display()));
         }
     }
     if !ensure_plugin_loader_binary() {
-        println!("{}", t!("[!] plugin-loader 不可用", "[!] plugin-loader unavailable").yellow());
         log_warn(t!("plugin-loader 未找到", "plugin-loader not found"));
     }
 }
@@ -155,10 +154,16 @@ fn check_tools() -> bool {
 
 // ── 设备检测 ──
 
-fn detect_device() {
+fn detect_device(downloader: Option<&str>) {
     print!("{}", t!("[*] USB 扫描...", "[*] USB scan...").cyan());
     io::stdout().flush().ok();
-    if detect_stlink_by_usb() {
+
+    let device_found = match downloader {
+        Some("cmsis_dap") => detect_dap_by_usb(),
+        _ => detect_stlink_by_usb(), // 默认检测 ST-Link
+    };
+
+    if device_found {
         println!(" {}", t!("检测到设备", "Device detected").green());
         print_stlink_info(&get_stlink_info());
         let mcu = get_mcu_info_via_swd();

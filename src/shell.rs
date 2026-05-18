@@ -16,7 +16,7 @@ use rustyline::{Context, Editor, Helper};
 
 use crate::output::{show_help, show_command_help};
 use crate::plugin::{ComponentInfo, PluginManager};
-use crate::stlink::get_mcu_info_via_swd;
+use crate::connectable::get_mcu_info_via_swd;
 use crate::t;
 use crate::tfmt;
 use crate::utils::{build_privileged_command, find_plugin_loader_tool, manifest_path, plugin_dir};
@@ -224,10 +224,12 @@ pub fn interactive_mode(plugin_manager: &mut Option<PluginManager>, default_down
 
     let mut cwd = cwd;
 
+    let mut interrupted = false;
     loop {
         let prompt = format_prompt(&cwd);
         match rl.readline(&prompt) {
             Ok(line) => {
+                interrupted = false;
                 let t = line.trim();
                 if t.is_empty() { continue; }
                 rl.add_history_entry(t).ok();
@@ -245,8 +247,13 @@ pub fn interactive_mode(plugin_manager: &mut Option<PluginManager>, default_down
                     }
                 }
             }
-            Err(ReadlineError::Interrupted) => {
+            Err(ReadlineError::Interrupted) if !interrupted => {
+                interrupted = true;
                 println!("{}", t!("^C (再按一次 Ctrl-C 或输入 exit 退出)", "^C (press again or type exit to quit)"));
+            }
+            Err(ReadlineError::Interrupted) => {
+                println!("{}", t!("退出。", "Goodbye."));
+                break;
             }
             Err(ReadlineError::Eof) => {
                 println!("{}", t!("退出。", "Goodbye."));

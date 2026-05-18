@@ -4,7 +4,7 @@
 
 use colored::*;
 use crate::plugin::PluginManager;
-use crate::stlink::{MCUInfo, STLinkInfo};
+use crate::connectable::{MCUInfo, STLinkInfo};
 use crate::t;
 
 fn display_width(s: &str) -> usize {

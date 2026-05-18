@@ -125,6 +125,11 @@ class STLinkDownloader:
             print(f"文件不存在: {file_path}", file=sys.stderr)
             return False
 
+        # 检查当前目录是否有 openocd.cfg，有则优先使用 OpenOCD 刷写
+        openocd_cfg = os.path.join(os.getcwd(), "openocd.cfg")
+        if os.path.isfile(openocd_cfg):
+            return self._flash_openocd(file_path, start_address, verify, openocd_cfg)
+
         actual_file = file_path
         cleanup_temp = False
 
@@ -159,6 +164,76 @@ class STLinkDownloader:
             return False
 
         # Reset the MCU
+        code, _ = self.run_command([self.st_flash_cmd, "reset"])
+        if code != 0:
+            print("复位 MCU 失败。", file=sys.stderr)
+            if cleanup_temp:
+                os.remove(actual_file)
+            return False
+
+        if verify:
+            success = self.verify(actual_file, start_address)
+        else:
+            success = True
+
+        if cleanup_temp:
+            os.remove(actual_file)
+
+        return success
+
+    def _flash_openocd(self, file_path, start_address, verify, cfg_path):
+        """使用 OpenOCD 进行刷写"""
+        openocd_cmd = self._find_command("openocd")
+        if not self._command_exists(openocd_cmd):
+            print("openocd 未安装，回退到 st-flash 刷写", file=sys.stderr)
+            return self._flash_stlink(file_path, start_address, verify)
+
+        addr_str = f"0x{start_address:08X}" if start_address != 0x08000000 else "0x08000000"
+        verify_cmd = " verify" if verify else ""
+        openocd_args = [
+            openocd_cmd, "-f", cfg_path,
+            "-c", f"program {file_path} {addr_str}{verify_cmd} reset exit"
+        ]
+
+        print(f"[*] 使用 OpenOCD 刷写: {cfg_path}")
+        code, _ = self.run_command(openocd_args)
+        if code != 0:
+            print("OpenOCD 刷写失败", file=sys.stderr)
+            return False
+
+        print("OpenOCD 刷写完成")
+        return True
+
+    def _flash_stlink(self, file_path, start_address, verify):
+        """使用 st-flash 刷写（内部回退）"""
+        actual_file = file_path
+        cleanup_temp = False
+
+        if file_path.lower().endswith('.elf'):
+            stripped = self.strip(file_path)
+            if stripped:
+                actual_file = stripped
+                cleanup_temp = True
+            else:
+                return False
+
+        file_size = os.path.getsize(actual_file)
+        mcu_info = self.probe()
+        if mcu_info and 'flash' in mcu_info:
+            flash_size = int(mcu_info['flash'], 16) if mcu_info['flash'].startswith('0x') else int(mcu_info['flash'])
+            if file_size > flash_size:
+                print(f"文件大小 ({file_size}) 超过 MCU Flash 大小 ({flash_size})", file=sys.stderr)
+                if cleanup_temp:
+                    os.remove(actual_file)
+                return False
+
+        addr_str = f"0x{start_address:08X}"
+        code, _ = self.run_command([self.st_flash_cmd, "write", actual_file, addr_str])
+        if code != 0:
+            if cleanup_temp:
+                os.remove(actual_file)
+            return False
+
         code, _ = self.run_command([self.st_flash_cmd, "reset"])
         if code != 0:
             print("复位 MCU 失败。", file=sys.stderr)
