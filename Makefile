@@ -2,6 +2,14 @@
 # This Makefile provides build targets for the Rust application, Go plugin loader,
 # and cross-compilation for Windows releases.
 
+# ── Path Setup ───────────────────────────────────────────────────────────
+# Prefer rustup-managed cargo (from ~/.cargo/bin) over Homebrew's cargo,
+# which ensures cross-compilation targets (e.g. x86_64-pc-windows-gnu) work.
+CARGO_HOME ?= $(HOME)/.cargo
+CARGO      := $(CARGO_HOME)/bin/cargo
+# Put rustup cargo first in PATH so rustc resolves to rustup's toolchain
+export PATH := $(CARGO_HOME)/bin:$(PATH)
+
 # Extract version from Cargo.toml
 VERSION := $(shell grep '^version' Cargo.toml | cut -d '"' -f2)
 
@@ -25,17 +33,18 @@ PLUGIN_LOADER_WIN_BIN := $(GO_DIR)/plugin-loader.exe
 PYTHON := python3
 
 # Phony targets (not files)
-.PHONY: all build rust plugin-loader plugin-loader-win check run-plugin release release-win release-all clean
+.PHONY: all build rust plugin-loader plugin-loader-win check run-plugin \
+        release release-macos release-linux release-win release-all clean
 
 # Default target
 all: build
 
-# Build all components
+# Build all components (host only)
 build: rust plugin-loader
 
-# Build Rust application
+# Build Rust application (host target)
 rust:
-	cargo build --release
+	$(CARGO) build --release
 
 # Build Go plugin loader
 plugin-loader:
@@ -47,19 +56,32 @@ plugin-loader-win:
 
 # Check Rust code without building
 check:
-	cargo check
+	$(CARGO) check
 
 # Run plugin loader to list components
 run-plugin: plugin-loader
 	$(PLUGIN_LOADER_BIN) --manifest plugins/manifest.yaml --list
 
-# Create release build for current platform
+# ── Release Targets ──────────────────────────────────────────────────────
+
+# Create release build for current platform (macOS/Linux)
 release: build
 	mkdir -p release
 	cp target/release/rabber-stm32-linktool release/rabber-$(VERSION)-$(HOST_OS)
 	cp $(PLUGIN_LOADER_BIN) release/plugin-loader
 
-# Build Windows cross-compilation artifacts (requires `rustup target add x86_64-pc-windows-gnu` + mingw-w64)
+# Explicit macOS release alias
+release-macos: release
+
+# Explicit Linux release (cross-compile from macOS)
+release-linux:
+	$(CARGO) build --release --target x86_64-unknown-linux-gnu
+	mkdir -p release
+	cp target/x86_64-unknown-linux-gnu/release/rabber-stm32-linktool release/rabber-$(VERSION)-linux
+	cp $(PLUGIN_LOADER_BIN) release/plugin-loader
+
+# Build Windows cross-compilation artifacts
+# Prerequisites: rustup target add x86_64-pc-windows-gnu && brew install mingw-w64
 release-win:
 	@if ! rustup target list --installed 2>/dev/null | grep -q $(WIN_TARGET); then \
 		echo "[!] Rust target $(WIN_TARGET) not installed."; \
@@ -68,7 +90,8 @@ release-win:
 		exit 1; \
 	fi
 	cd $(GO_DIR) && GOOS=windows GOARCH=amd64 go build -o plugin-loader.exe
-	cargo build --release --target $(WIN_TARGET)
+	$(CARGO) build --release --target $(WIN_TARGET)
+	mkdir -p release
 	cp target/$(WIN_TARGET)/release/rabber-stm32-linktool.exe release/rabber-$(VERSION)-win64.exe
 	cp $(PLUGIN_LOADER_WIN_BIN) release/plugin-loader.exe
 
@@ -77,5 +100,5 @@ release-all: release release-win
 
 # Clean build artifacts
 clean:
-	cargo clean
+	$(CARGO) clean
 	rm -f $(PLUGIN_LOADER_BIN)

@@ -27,9 +27,15 @@ pub fn install_stlink_tools() -> bool {
         println!("{}", t!("Windows 请手动安装 ST-Link Utility:",
             "Windows: Please manually install ST-Link Utility:").cyan());
         println!("  https://www.st.com/en/development-tools/stsw-link004.html");
+        /*
+        Why cannot Microsoft just add stlink-tools to winget?
+        This is really a piece od shit.
+        Fuck you Microsoft.
+        */
         println!("{}", t!("或使用 OpenOCD:", "Or use OpenOCD:").cyan());
         println!("  https://openocd.org/");
         false
+        // Here also a peice od shit, of course. Fuck you Microsoft and your damn Windows OS.
     }
 
     #[cfg(target_os = "macos")]
